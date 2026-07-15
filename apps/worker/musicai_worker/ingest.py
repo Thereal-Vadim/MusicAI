@@ -27,11 +27,32 @@ def _yt_dlp_cmd() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
 
 
+def _resolve_ffmpeg() -> str | None:
+    system = shutil.which("ffmpeg")
+    if system:
+        return system
+    try:
+        import imageio_ffmpeg
+
+        bundled = imageio_ffmpeg.get_ffmpeg_exe()
+        if bundled and Path(bundled).exists():
+            log.info("Using bundled ffmpeg from imageio-ffmpeg: %s", bundled)
+            return bundled
+    except ImportError:
+        log.debug("imageio-ffmpeg not installed")
+    return None
+
+
 def normalize_audio(input_path: Path, output_path: Path, sample_rate: int = 44100) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    ffmpeg = _resolve_ffmpeg()
+    if not ffmpeg:
+        log.warning("No ffmpeg available; using raw download %s", input_path)
+        shutil.copy2(input_path, output_path)
+        return output_path
     try:
         cmd = [
-            "ffmpeg",
+            ffmpeg,
             "-y",
             "-i",
             str(input_path),
@@ -64,14 +85,26 @@ def download_youtube(
     audio_out = output_dir / f"{youtube_id}.wav"
     video_out = output_dir / f"{youtube_id}.mp4"
     ytdlp = _yt_dlp_cmd()
+    ffmpeg = _resolve_ffmpeg()
+    has_ffmpeg = ffmpeg is not None
+
+    ffmpeg_args: list[str] = []
+    if ffmpeg:
+        ffmpeg_args = ["--ffmpeg-location", ffmpeg]
 
     duration_args: list[str] = []
-    if max_duration_sec is not None:
+    if max_duration_sec is not None and has_ffmpeg:
         duration_args = ["--download-sections", f"*0-{max_duration_sec}"]
+    elif max_duration_sec is not None:
+        log.warning(
+            "ffmpeg not found; downloading full audio (no %ss cap). Install ffmpeg for partial clips.",
+            max_duration_sec,
+        )
 
     log.info("Downloading YouTube audio id=%s url=%s", youtube_id, url)
     audio_cmd = [
         *ytdlp,
+        *ffmpeg_args,
         *duration_args,
         "-x",
         "--audio-format",
@@ -105,6 +138,7 @@ def download_youtube(
     log.info("Downloading YouTube video id=%s", youtube_id)
     video_cmd = [
         *ytdlp,
+        *ffmpeg_args,
         *duration_args,
         "-f",
         "best[height<=720]/best",
