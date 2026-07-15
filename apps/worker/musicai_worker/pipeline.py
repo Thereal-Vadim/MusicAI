@@ -77,7 +77,9 @@ class TranscriptionPipeline:
             else:
                 from musicai_worker.ingest import download_youtube
 
-                audio_path, video_path, youtube_id = download_youtube(source["url"], work_dir)
+                audio_path, video_path, youtube_id = download_youtube(
+                source["url"], work_dir, allow_placeholder=False
+            )
                 source_meta.url = source["url"]
                 source_meta.youtube_id = youtube_id
                 log.info(

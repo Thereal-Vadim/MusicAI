@@ -16,6 +16,15 @@ LOG_FORMAT = (
 )
 
 
+class ContextFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        if not hasattr(record, "stage"):
+            record.stage = "-"
+        if not hasattr(record, "job_id"):
+            record.job_id = "-"
+        return super().format(record)
+
+
 class PipelineLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if not hasattr(record, "stage"):
@@ -30,26 +39,28 @@ def setup_logging(
     log_dir: Path | None = None,
     level: int = logging.DEBUG,
 ) -> logging.Logger:
-    root = logging.getLogger("musicai")
-    root.handlers.clear()
-    root.setLevel(level)
-    root.addFilter(PipelineLogFilter())
+    musicai_logger = logging.getLogger("musicai")
+    musicai_logger.handlers.clear()
+    musicai_logger.setLevel(level)
+    musicai_logger.propagate = False
 
-    formatter = logging.Formatter(LOG_FORMAT)
+    formatter = ContextFormatter(LOG_FORMAT)
 
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(level)
     console.setFormatter(formatter)
-    root.addHandler(console)
+    console.addFilter(PipelineLogFilter())
+    musicai_logger.addHandler(console)
 
     if log_dir is not None:
         log_dir.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_dir / f"{job_id}.log", encoding="utf-8")
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
-        root.addHandler(file_handler)
+        file_handler.addFilter(PipelineLogFilter())
+        musicai_logger.addHandler(file_handler)
 
-    return root
+    return musicai_logger
 
 
 def get_logger(name: str, job_id: str = "-", stage: str = "-") -> logging.LoggerAdapter:

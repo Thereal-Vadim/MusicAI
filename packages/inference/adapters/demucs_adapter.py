@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from inference.adapters.base import BaseModelAdapter
@@ -40,7 +41,7 @@ class DemucsAdapter(BaseModelAdapter):
 
         try:
             cmd = [
-                "python",
+                sys.executable,
                 "-m",
                 "demucs",
                 "-n",
