@@ -5,7 +5,7 @@ from pathlib import Path
 
 from benchmarks.enter_sandman.compare_tabs import compare_files
 
-REFERENCE = Path(__file__).resolve().parents[1] / "enter_sandman" / "reference_intro.json"
+REFERENCE = Path(__file__).resolve().parents[2] / "benchmarks" / "enter_sandman" / "reference_intro.json"
 
 
 def test_compare_perfect_match(tmp_path: Path):
