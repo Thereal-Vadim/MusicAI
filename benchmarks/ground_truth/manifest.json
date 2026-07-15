@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "timing_tolerance_ms": 80,
+  "alignment_window_ms": 180,
+  "cases": [
+    {
+      "id": "enter_sandman_intro",
+      "title": "Metallica — Enter Sandman (intro riff)",
+      "reference_json": "benchmarks/enter_sandman/reference_intro.json",
+      "reference_url": "https://www.songsterr.com/a/wsa/metallica-enter-sandman-official-tab-s3787442",
+      "predicted_glob": "data/benchmarks/enter_sandman/**/draft.json",
+      "profile_keywords": {
+        "title": ["enter sandman"],
+        "artist": ["metallica"]
+      }
+    }
+  ]
+}

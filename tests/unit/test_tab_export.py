@@ -45,7 +45,7 @@ def _intro_document() -> TabDocument:
                         index=0,
                         start_ms=0,
                         section="Intro",
-                        time_signature=(1, 4),
+                        time_signature=(4, 4),
                         tempo_bpm=123,
                         notes=notes,
                     )
@@ -66,12 +66,21 @@ def test_alphatex_contains_metadata_and_notes():
     assert "7.6" in tex
 
 
+def test_alphatex_no_invalid_time_signature():
+    tex = document_to_alphatex(_intro_document())
+    assert "\\ts 1 4" not in tex
+    assert "\\track" in tex
+    assert "\\staff { tabs }" in tex
+
+
 def test_gp5_roundtrip_intro():
     import io
 
     data = document_to_gp5_bytes(_intro_document())
     assert len(data) > 1000
     song = guitarpro.parse(io.BytesIO(data))
+    assert len(song.tracks) == 1
+    assert len(song.tracks[0].measures) == 1
     assert song.title == "Enter Sandman"
     assert song.artist == "Metallica"
     assert song.tempo == 123

@@ -120,11 +120,11 @@ export function UploadForm() {
           >
             <option value="combined">Все гитары (Demucs stem)</option>
             <option value="solo">Соло-гитара</option>
-            <option value="rhythm">Ритм-гитара (Wave-U-Net → CASA fallback)</option>
+            <option value="rhythm">Ритм-гитара</option>
           </select>
           <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.875rem" }}>
-            Слой 2: Wave-U-Net (solo/rhythm) при наличии WAVE_UNET_WEIGHTS, иначе CASA.
-            Требует <code>WAVE_UNET_WEIGHTS</code> и <code>WAVE_UNET_DEVICE=mps</code> в .env.
+            Слой 2: HPSS + stereo-панорама (solo/rhythm). На стерео-миксах качество выше.
+            Wave-U-Net подключается автоматически, когда задан <code>WAVE_UNET_WEIGHTS</code>.
           </p>
         </div>
 

@@ -6,6 +6,7 @@ import soundfile as sf
 from musicai_worker.guitar_isolation import (
     RHYTHM_CFG,
     _apply_side_rhythm_mask,
+    demix_guitar_stems,
     isolate_guitar_part,
 )
 
@@ -79,3 +80,27 @@ def test_rhythm_emphasis_runs_on_stereo_mix(tmp_path) -> None:
     )
     assert out.name == "guitar_rhythm_v2.wav"
     assert out.exists()
+
+
+def test_demix_guitar_stems_writes_solo_and_rhythm(tmp_path) -> None:
+    sr = 44100
+    n = sr // 2
+    t = np.linspace(0, 0.5, n, endpoint=False)
+    stereo = np.stack([0.6 * np.sin(2 * np.pi * 220 * t), -0.6 * np.sin(2 * np.pi * 220 * t)])
+    guitar = np.mean(stereo, axis=0)
+    guitar_path = tmp_path / "guitar.wav"
+    mix_path = tmp_path / "mix.wav"
+    sf.write(str(guitar_path), guitar.astype(np.float32), sr)
+    sf.write(str(mix_path), stereo.T, sr)
+
+    solo, rhythm, diag = demix_guitar_stems(
+        guitar_path,
+        tmp_path / "demix",
+        mix_path=mix_path,
+    )
+    assert solo.name == "solo.wav"
+    assert rhythm.name == "rhythm.wav"
+    assert solo.parent.name == "standard"
+    assert solo.stat().st_size > 0
+    assert rhythm.stat().st_size > 0
+    assert diag["stereo_used"] == 1.0

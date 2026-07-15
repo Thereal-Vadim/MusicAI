@@ -13,7 +13,9 @@ from inference.adapters.bs_roformer_adapter import BSRoFormerAdapter
 from inference.adapters.demucs_adapter import DemucsAdapter
 from inference.adapters.librosa_bpm_adapter import LibrosaBpmAdapter
 from inference.adapters.mediapipe_adapter import MediaPipeAdapter
+from inference.adapters.hpss_demix_adapter import HpssDemixAdapter
 from inference.adapters.wave_unet_adapter import WaveUNetAdapter
+from inference.adapters.spectral_dereverb_adapter import SpectralDereverbAdapter
 from inference.cloud.replicate_client import ReplicateDemucsAdapter
 from inference.settings import InferenceSettings, inference_settings
 
@@ -67,10 +69,13 @@ class ModelRegistry:
                 frame_threshold=cfg.basic_pitch_frame_threshold,
             )
         if adapter_type == "mediapipe":
+            model = cfg.mediapipe_hand_model or spec.get("model")
+            model_path = Path(model) if model else None
             return MediaPipeAdapter(
                 model_id=model_id,
                 min_detection_confidence=cfg.mediapipe_min_detection_confidence,
                 min_tracking_confidence=cfg.mediapipe_min_tracking_confidence,
+                model_path=model_path,
             )
         if adapter_type == "librosa":
             return LibrosaBpmAdapter(model_id=model_id)
@@ -82,6 +87,16 @@ class ModelRegistry:
                 checkpoint_path=checkpoint_path,
                 device=cfg.bs_roformer_device or spec.get("device", "cpu"),
                 segment_size=cfg.bs_roformer_segment_size or spec.get("segment_size", 256),
+            )
+        if adapter_type == "hpss_demix":
+            return HpssDemixAdapter(model_id=model_id)
+        if adapter_type == "spectral_dereverb":
+            return SpectralDereverbAdapter(
+                model_id=model_id,
+                strength=cfg.dereverb_strength,
+                decay_ms=cfg.dereverb_decay_ms,
+                floor=cfg.dereverb_floor,
+                transient_mix=cfg.dereverb_transient_mix,
             )
         if adapter_type == "wave_unet":
             weights = cfg.wave_unet_weights or spec.get("weights_path")
@@ -116,6 +131,9 @@ class ModelRegistry:
             "basic_pitch_frame_threshold": self.settings.basic_pitch_frame_threshold,
             "mediapipe_min_detection_confidence": self.settings.mediapipe_min_detection_confidence,
             "mediapipe_min_tracking_confidence": self.settings.mediapipe_min_tracking_confidence,
+            "mediapipe_hand_model": str(self.settings.mediapipe_hand_model)
+            if self.settings.mediapipe_hand_model
+            else None,
             "cloud_configured": bool(self.settings.replicate_api_token),
             "bs_roformer_checkpoint": str(self.settings.bs_roformer_checkpoint)
             if self.settings.bs_roformer_checkpoint
@@ -123,5 +141,7 @@ class ModelRegistry:
             "wave_unet_weights": str(self.settings.wave_unet_weights)
             if self.settings.wave_unet_weights
             else None,
+            "dereverb_enabled": self.settings.dereverb_enabled,
+            "dereverb_strength": self.settings.dereverb_strength,
             "fingering_optimizer": self.settings.fingering_optimizer,
         }

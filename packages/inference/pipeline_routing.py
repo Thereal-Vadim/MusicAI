@@ -79,10 +79,22 @@ class FingeringRouting:
 
 
 @dataclass(frozen=True)
+class DereverbRouting:
+    enabled: bool = True
+    primary: str = "spectral/dereverb"
+    fallbacks: tuple[str, ...] = ()
+
+    @property
+    def chain(self) -> tuple[str, ...]:
+        return (self.primary, *self.fallbacks)
+
+
+@dataclass(frozen=True)
 class PipelineRouting:
     coarse_separation: CoarseSeparationRouting
     guitar_demix: StageRouting
     fingering: FingeringRouting
+    dereverb: DereverbRouting = field(default_factory=DereverbRouting)
 
     def to_dict(self) -> dict[str, Any]:
         coarse_payload: dict[str, Any] = {
@@ -97,6 +109,11 @@ class PipelineRouting:
 
         return {
             "coarse_separation": coarse_payload,
+            "dereverb": {
+                "enabled": self.dereverb.enabled,
+                "primary": self.dereverb.primary,
+                "fallbacks": list(self.dereverb.fallbacks),
+            },
             "guitar_demix": {
                 "primary": self.guitar_demix.primary,
                 "fallbacks": list(self.guitar_demix.fallbacks),
@@ -136,11 +153,16 @@ def load_pipeline_routing(
     coarse = raw.get("coarse_separation", {})
     demix = raw.get("guitar_demix", {})
     finger = raw.get("fingering", {})
+    dereverb_raw = raw.get("dereverb", {})
     aco_raw = finger.get("aco", {})
 
     optimizer = finger.get("optimizer", cfg.fingering_optimizer)
     if optimizer not in ("aco", "dp"):
         optimizer = "dp"
+
+    enabled = dereverb_raw.get("enabled", cfg.dereverb_enabled)
+    if isinstance(enabled, str):
+        enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
 
     return PipelineRouting(
         coarse_separation=CoarseSeparationRouting(
@@ -149,7 +171,7 @@ def load_pipeline_routing(
             ensemble=_parse_ensemble(coarse),
         ),
         guitar_demix=StageRouting(
-            primary=demix.get("primary", "casa/v1"),
+            primary=demix.get("primary", "wave-unet/guitar-demix"),
             fallbacks=tuple(demix.get("fallbacks", [])),
         ),
         fingering=FingeringRouting(
@@ -165,5 +187,10 @@ def load_pipeline_routing(
                 open_string_bonus=float(aco_raw.get("open_string_bonus", 2.0)),
                 string_skip_penalty=float(aco_raw.get("string_skip_penalty", 3.5)),
             ),
+        ),
+        dereverb=DereverbRouting(
+            enabled=bool(enabled),
+            primary=str(dereverb_raw.get("primary", "spectral/dereverb")),
+            fallbacks=tuple(dereverb_raw.get("fallbacks", [])),
         ),
     )

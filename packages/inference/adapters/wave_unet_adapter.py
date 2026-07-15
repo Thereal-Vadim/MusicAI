@@ -192,7 +192,7 @@ class WaveUNetAdapter(BaseModelAdapter):
     """
     Neural guitar demix via Wave-U-Net.
 
-    Lazy loads weights on first predict(). CASA remains fallback when weights are missing.
+    Lazy loads weights on first predict(). Requires WAVE_UNET_WEIGHTS — no heuristic fallback.
     """
 
     def __init__(

@@ -96,5 +96,17 @@ class BpmOutput(BaseModel):
     model_id: str
 
 
+class DereverbInput(BaseModel):
+    audio: Path
+    output_path: Path
+
+
+class DereverbOutput(BaseModel):
+    audio_path: Path
+    model_id: str
+    method: str
+    diagnostics: dict[str, float] = Field(default_factory=dict)
+
+
 class ModelInput(BaseModel):
     payload: Any

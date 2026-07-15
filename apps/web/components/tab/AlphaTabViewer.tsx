@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ALPHATAB_CDN, loadAlphaTab } from "@/lib/load-alphatab";
+import type { BenchmarkComparison } from "@/lib/benchmark-format";
 import "./tab-sheet.css";
 
 const CDN = ALPHATAB_CDN;
@@ -11,6 +12,7 @@ interface AlphaTabViewerProps {
   tex: string;
   gp5Url: string;
   trackName?: string | null;
+  comparison?: BenchmarkComparison | null;
 }
 
 type AlphaTabApi = {
@@ -30,7 +32,7 @@ type AlphaTabApi = {
 
 const PLAYER_PLAYING = 1;
 
-export function AlphaTabViewer({ draftId, tex, gp5Url, trackName }: AlphaTabViewerProps) {
+export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: AlphaTabViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<AlphaTabApi | null>(null);
@@ -51,7 +53,12 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName }: AlphaTabView
       setError(null);
 
       try {
-        const alphaTab = await loadAlphaTab();
+        const [alphaTab, gp5Buffer] = await Promise.all([
+          loadAlphaTab(),
+          fetch(gp5Url)
+            .then(async (res) => (res.ok ? res.arrayBuffer() : null))
+            .catch(() => null),
+        ]);
         if (cancelled || !containerRef.current) return;
 
         containerRef.current.innerHTML = "";
@@ -83,6 +90,21 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName }: AlphaTabView
               noteCircleColor: "#212529",
             },
           },
+          notation: {
+            elements: {
+              scoreTitle: false,
+              scoreSubTitle: false,
+              scoreArtist: false,
+              scoreAlbum: false,
+              scoreWords: false,
+              scoreMusic: false,
+              scoreWordsAndMusic: false,
+              scoreCopyright: false,
+              guitarTuning: false,
+              trackNames: false,
+              chordDiagrams: false,
+            },
+          },
           player: {
             enablePlayer: true,
             playerMode: alphaTab.PlayerMode.EnabledAutomatic,
@@ -106,7 +128,15 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName }: AlphaTabView
         });
 
         api.error.on((err) => {
-          setError(err.message);
+          const details =
+            typeof err === "object" && err !== null && "message" in err
+              ? String((err as { message?: string }).message)
+              : String(err);
+          setError(
+            details.includes("diagnostics")
+              ? `${details} (проверьте GP5 fallback или перезагрузите draft)`
+              : details
+          );
           setLoading(false);
         });
 
@@ -115,21 +145,15 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName }: AlphaTabView
         });
 
         let loaded = false;
-        try {
-          const gp5Res = await fetch(gp5Url);
-          if (gp5Res.ok) {
-            const buffer = await gp5Res.arrayBuffer();
-            if (buffer.byteLength > 100) {
-              loaded = api.load(new Uint8Array(buffer));
-            }
-          }
-        } catch {
-          // fall through to alphaTex
+        if (gp5Buffer && gp5Buffer.byteLength > 100) {
+          // Only the guitar track — ignore bass/drums leftover from the GP5 template.
+          loaded = api.load(new Uint8Array(gp5Buffer), [0]);
         }
 
         if (!loaded) {
           if (!tex.trim()) {
-            throw new Error("Не удалось загрузить GP5 и alphaTex пуст.");
+            if (!cancelled) setLoading(true);
+            return;
           }
           api.tex(tex);
         }
@@ -180,6 +204,26 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName }: AlphaTabView
         {error ? <p className="tab-sheet-error">{error}</p> : null}
         <div ref={containerRef} className="tab-sheet-canvas" />
       </div>
+
+      {comparison ? (
+        <div className="tab-sheet-benchmark-bar">
+          <span className="tab-sheet-benchmark-chip">
+            Overall F1 <strong>{(comparison.metrics.overall_f1 * 100).toFixed(0)}%</strong>
+          </span>
+          <span className="tab-sheet-benchmark-chip">
+            Pitch <strong>{(comparison.metrics.pitch_f1 * 100).toFixed(0)}%</strong>
+          </span>
+          <span className="tab-sheet-benchmark-chip">
+            Fret <strong>{(comparison.metrics.fret_accuracy * 100).toFixed(0)}%</strong>
+          </span>
+          <span className="tab-sheet-benchmark-chip">
+            Timing <strong>{(comparison.metrics.timing_accuracy * 100).toFixed(0)}%</strong>
+          </span>
+          <span className="tab-sheet-benchmark-chip muted">
+            {comparison.metrics.matched}/{comparison.metrics.reference_count} нот эталона
+          </span>
+        </div>
+      ) : null}
 
       <div className="tab-sheet-controls">
         <button type="button" onClick={onPlayPause}>

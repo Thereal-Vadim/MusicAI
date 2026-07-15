@@ -29,3 +29,11 @@ models:
     adapter: wave_unet
     weights_path: null
     device: mps
+  hpss/guitar-demix:
+    adapter: hpss_demix
+  spectral/dereverb:
+    adapter: spectral_dereverb
+    strength: 0.65
+    decay_ms: 80
+    floor: 0.12
+    transient_mix: 0.18

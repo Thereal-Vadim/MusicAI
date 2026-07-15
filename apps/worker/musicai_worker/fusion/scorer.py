@@ -1,11 +1,20 @@
-"""Fusion of audio, vision, and theory signals."""
+"""Fusion of audio, vision, theory signals, and tab benchmark scoring."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from inference.schemas.model_io import HandFrame, RawNoteEvent
-from tab_schema.models import NoteConfidence, TabNote
+from tab_schema.alignment import (
+    TabAlignmentResult,
+    align_documents,
+    align_files,
+    align_tab_notes,
+    load_notes_from_document,
+    load_notes_from_path,
+)
+from tab_schema.models import TabDocument, TabNote
 
 
 @dataclass
@@ -72,3 +81,41 @@ class FusionScorer:
             )
             for n in raw_notes
         ]
+
+    def benchmark_against_reference(
+        self,
+        predicted: TabDocument,
+        reference: TabDocument | Path,
+        *,
+        window_ms: float = 180.0,
+        timing_tolerance_ms: float = 80.0,
+    ) -> TabAlignmentResult:
+        """Align predicted tab vs ground truth; returns pitch/fret/string/timing metrics."""
+        if isinstance(reference, Path):
+            return align_tab_notes(
+                load_notes_from_path(reference),
+                load_notes_from_document(predicted),
+                window_ms=window_ms,
+                timing_tolerance_ms=timing_tolerance_ms,
+            )
+        return align_documents(
+            reference,
+            predicted,
+            window_ms=window_ms,
+            timing_tolerance_ms=timing_tolerance_ms,
+        )
+
+    def benchmark_files(
+        self,
+        reference_path: Path,
+        predicted_path: Path,
+        *,
+        window_ms: float = 180.0,
+        timing_tolerance_ms: float = 80.0,
+    ) -> TabAlignmentResult:
+        return align_files(
+            reference_path,
+            predicted_path,
+            window_ms=window_ms,
+            timing_tolerance_ms=timing_tolerance_ms,
+        )

@@ -18,6 +18,7 @@ class InferenceSettings(BaseSettings):
     basic_pitch_frame_threshold: float = 0.3
     mediapipe_min_detection_confidence: float = 0.7
     mediapipe_min_tracking_confidence: float = 0.5
+    mediapipe_hand_model: Path | None = None
     replicate_api_token: str | None = None
     models_config_path: Path | None = None
     pipeline_config_path: Path | None = None
@@ -30,6 +31,13 @@ class InferenceSettings(BaseSettings):
     # Wave-U-Net (guitar demix)
     wave_unet_weights: Path | None = None
     wave_unet_device: str = "cpu"
+
+    # Spectral dereverb (guitar stem cleanup)
+    dereverb_enabled: bool = True
+    dereverb_strength: float = 0.65
+    dereverb_decay_ms: float = 80.0
+    dereverb_floor: float = 0.12
+    dereverb_transient_mix: float = 0.18
 
     # Fingering optimizer
     fingering_optimizer: Literal["aco", "dp"] = "dp"

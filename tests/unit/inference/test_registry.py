@@ -14,6 +14,7 @@ def test_registry_loads_models():
     assert "librosa/beat" in models
     assert "bs-roformer/guitar-4stem" in models
     assert "wave-unet/guitar-demix" in models
+    assert "hpss/guitar-demix" in models
 
 
 def test_registry_healthcheck():

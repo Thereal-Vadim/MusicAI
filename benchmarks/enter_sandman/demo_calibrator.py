@@ -190,7 +190,7 @@ def calibrate_enter_sandman_draft(
                 start_ms=measure_idx * ms_per_measure,
                 confidence=0.96,
                 chord="E5" if measure_idx == 0 else None,
-                time_signature=(1, 4) if measure_idx == 0 else (4, 4),
+                time_signature=(4, 4),
                 section="Intro" if measure_idx == 0 else None,
                 tempo_bpm=meta_bpm if measure_idx == 0 else None,
             )

@@ -19,6 +19,9 @@ from musicai_api.db.session import get_session
 from musicai_api.services.job_runner import spawn_job_process
 from musicai_api.services.stem_assets import StemAssetError, list_job_stems, resolve_stem_audio
 from musicai_api.settings import settings
+from inference.pipeline_routing import load_pipeline_routing
+from inference.preflight import guitar_demix_unavailable_reason
+from inference.registry import ModelRegistry
 from tab_schema.job_progress import (
     PIPELINE_STAGES,
     read_job_status,
@@ -119,6 +122,21 @@ def _job_response(job: Job, draft_id: str | None = None) -> JobResponse:
     )
 
 
+def _assert_guitar_part_available(guitar_part: GuitarPart) -> None:
+    if guitar_part == "combined":
+        return
+    registry = ModelRegistry.from_config()
+    routing = load_pipeline_routing()
+    reason = guitar_demix_unavailable_reason(registry, routing.guitar_demix)
+    if reason:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Guitar part '{guitar_part}' requires Wave-U-Net demix, which is unavailable: {reason}"
+            ),
+        )
+
+
 @router.post("", response_model=JobCreateResponse)
 async def create_upload_job(
     file: UploadFile = File(...),
@@ -126,6 +144,7 @@ async def create_upload_job(
     guitar_part: GuitarPart = Form(default="combined"),
     session: AsyncSession = Depends(get_session),
 ) -> JobCreateResponse:
+    _assert_guitar_part_available(guitar_part)
     job_id = str(uuid.uuid4())
     work_dir = (settings.jobs_dir / job_id).resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -167,6 +186,7 @@ async def create_youtube_job(
         raise HTTPException(status_code=403, detail="YouTube ingest is disabled")
     if not body.rights_confirmed:
         raise HTTPException(status_code=400, detail="Rights confirmation required")
+    _assert_guitar_part_available(body.guitar_part)
 
     job_id = str(uuid.uuid4())
     work_dir = (settings.jobs_dir / job_id).resolve()

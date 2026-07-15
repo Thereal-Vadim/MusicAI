@@ -31,6 +31,7 @@ def write_stems_manifest(
     coarse_stems: dict[str, Path] | None = None,
     solo_demix: Path | None = None,
     rhythm_demix: Path | None = None,
+    dereverb_stem: Path | None = None,
 ) -> Path:
     stems_dir = work_dir / "stems"
     stems_dir.mkdir(parents=True, exist_ok=True)
@@ -66,11 +67,25 @@ def write_stems_manifest(
             }
         )
 
+    if (
+        dereverb_stem
+        and dereverb_stem.exists()
+        and dereverb_stem.stat().st_size > 0
+        and dereverb_stem.resolve() != demucs_stem.resolve()
+    ):
+        items.append(
+            {
+                "id": "dereverb",
+                "label": "Guitar (dereverb)",
+                "relative_path": _relative(work_dir, dereverb_stem),
+            }
+        )
+
     if solo_demix and solo_demix.exists() and solo_demix.stat().st_size > 0:
         items.append(
             {
                 "id": "solo_demix",
-                "label": "Solo Guitar (Wave-U-Net / CASA)",
+                "label": "Solo Guitar",
                 "relative_path": _relative(work_dir, solo_demix),
             }
         )
@@ -78,7 +93,7 @@ def write_stems_manifest(
         items.append(
             {
                 "id": "rhythm_demix",
-                "label": "Rhythm Guitar (Wave-U-Net / CASA)",
+                "label": "Rhythm Guitar",
                 "relative_path": _relative(work_dir, rhythm_demix),
             }
         )
@@ -96,7 +111,7 @@ def write_stems_manifest(
 
     payload = {
         "guitar_part": guitar_part,
-        "pipeline": "ensemble+wave_unet+casa_fallback+aco",
+        "pipeline": "ensemble+dereverb+hpss_demix+aco",
         "items": items,
     }
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

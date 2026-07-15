@@ -138,6 +138,7 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:800
 export const PIPELINE_STAGES = [
   "ingest",
   "separate",
+  "dereverb",
   "guitar_demix",
   "demix_validate",
   "transcribe",
@@ -150,10 +151,11 @@ export const PIPELINE_STAGES = [
 
 export const STAGE_TARGET_PCT: Record<string, number> = {
   ingest: 8,
-  separate: 16,
-  guitar_demix: 20,
-  demix_validate: 22,
-  transcribe: 42,
+  separate: 14,
+  dereverb: 18,
+  guitar_demix: 22,
+  demix_validate: 24,
+  transcribe: 44,
   vision: 62,
   fusion: 72,
   judge: 82,

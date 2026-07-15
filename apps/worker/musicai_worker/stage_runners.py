@@ -8,14 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from inference.pipeline_routing import CoarseSeparationRouting, PipelineRouting, StageRouting
+from inference.pipeline_routing import CoarseSeparationRouting, DereverbRouting, PipelineRouting, StageRouting
 from inference.registry import ModelRegistry
-from inference.schemas.model_io import GuitarDemixInput, SeparateInput, SeparateOutput
-from musicai_worker.guitar_demix import demix_guitar_stem
+from inference.schemas.model_io import DereverbInput, GuitarDemixInput, SeparateInput, SeparateOutput
 
 log = logging.getLogger("musicai.stage_runners")
 
-CASA_BACKEND_ID = "casa/v1"
 ENSEMBLE_BACKEND_ID = "ensemble/roformer_plus_demucs"
 
 
@@ -23,6 +21,14 @@ ENSEMBLE_BACKEND_ID = "ensemble/roformer_plus_demucs"
 class CoarseSeparationResult:
     output: SeparateOutput
     backend_id: str
+
+
+@dataclass(frozen=True)
+class DereverbRunResult:
+    audio: Path
+    method: str
+    backend_id: str
+    diagnostics: dict[str, float]
 
 
 @dataclass(frozen=True)
@@ -72,13 +78,6 @@ async def _run_coarse_ensemble(
     routing: CoarseSeparationRouting,
     separate_input: SeparateInput,
 ) -> CoarseSeparationResult:
-    """
-    RoFormer → Demucs cascade for 2-stem ViperX checkpoints.
-
-    Step 1: full mix → vocals + instrumental (stored as guitar.wav by RoFormer mapper)
-    Step 2: instrumental → bass + drums + guitar via Demucs
-    Merge: vocals from step 1, rhythm section + guitar from step 2
-    """
     if not routing.ensemble:
         raise RuntimeError("Ensemble steps are not configured")
 
@@ -107,18 +106,11 @@ async def _run_coarse_ensemble(
     ).output
 
     vocals = step1_out.coarse_stems.get("vocals")
-    # RoFormer 2-stem mapper labels instrumental as "guitar" — use it as Demucs input.
     instrumental = step1_out.coarse_stems.get("guitar")
     if vocals is None or instrumental is None:
         raise FileNotFoundError(
             f"RoFormer step missing vocals/instrumental stems: {list(step1_out.coarse_stems.keys())}"
         )
-
-    log.info(
-        "Ensemble step 1 complete vocals=%s instrumental=%s",
-        vocals.name,
-        instrumental.name,
-    )
 
     step2_out = (
         await _run_single_coarse_backend(
@@ -150,12 +142,6 @@ async def _run_coarse_ensemble(
         raise FileNotFoundError(
             f"Ensemble Demucs step did not produce guitar stem: {list(step2_out.coarse_stems.keys())}"
         )
-
-    log.info(
-        "Ensemble merge complete stems=%s guitar=%s",
-        list(coarse_stems.keys()),
-        guitar_path,
-    )
 
     return CoarseSeparationResult(
         output=SeparateOutput(
@@ -207,6 +193,49 @@ async def run_coarse_separation(
     ) from last_error
 
 
+async def run_dereverb(
+    registry: ModelRegistry,
+    routing: DereverbRouting,
+    *,
+    audio: Path,
+    output_path: Path,
+) -> DereverbRunResult | None:
+    """Clean late reverb from guitar stem. Returns None when stage is disabled."""
+    if not routing.enabled:
+        log.info("Dereverb stage disabled; using raw guitar stem")
+        return None
+
+    last_error: Exception | None = None
+    for backend_id in routing.chain:
+        try:
+            adapter = registry.get(backend_id)
+        except KeyError:
+            log.debug("Dereverb backend %s not registered, skipping", backend_id)
+            continue
+
+        if not adapter.healthcheck():
+            log.info("Dereverb backend %s unhealthy", backend_id)
+            continue
+
+        try:
+            output = await adapter.predict(
+                DereverbInput(audio=audio, output_path=output_path)
+            )
+            return DereverbRunResult(
+                audio=output.audio_path,
+                method=output.method,
+                backend_id=backend_id,
+                diagnostics=output.diagnostics,
+            )
+        except Exception as exc:
+            log.warning("Dereverb backend %s failed: %s", backend_id, exc)
+            last_error = exc
+
+    if last_error:
+        log.warning("Dereverb unavailable, continuing with raw stem: %s", last_error)
+    return None
+
+
 async def run_guitar_demix(
     registry: ModelRegistry,
     routing: StageRouting,
@@ -218,16 +247,6 @@ async def run_guitar_demix(
     last_error: Exception | None = None
 
     for backend_id in routing.chain:
-        if backend_id == CASA_BACKEND_ID:
-            result = demix_guitar_stem(guitar_stem, output_dir, mix_path=mix_path)
-            return GuitarDemixRunResult(
-                solo=result.solo,
-                rhythm=result.rhythm,
-                method=result.method,
-                backend_id=backend_id,
-                diagnostics=result.diagnostics,
-            )
-
         try:
             adapter = registry.get(backend_id)
         except KeyError:
@@ -235,7 +254,7 @@ async def run_guitar_demix(
             continue
 
         if not adapter.healthcheck():
-            log.info("Demix backend %s unhealthy, trying next", backend_id)
+            log.info("Demix backend %s unhealthy", backend_id)
             continue
 
         try:
@@ -258,7 +277,8 @@ async def run_guitar_demix(
             last_error = exc
 
     raise RuntimeError(
-        f"No guitar demix backend available (chain={routing.chain})"
+        f"Wave-U-Net demix unavailable (primary={routing.primary}). "
+        "Configure WAVE_UNET_WEIGHTS in .env"
     ) from last_error
 
 

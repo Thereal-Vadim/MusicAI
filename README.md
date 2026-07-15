@@ -65,6 +65,7 @@ Open http://localhost:3000/create
 
 ```bash
 pytest
+python benchmarks/run_ground_truth_benchmark.py --predicted path/to/draft.json
 pnpm test:web
 python benchmarks/run_benchmark.py
 ```

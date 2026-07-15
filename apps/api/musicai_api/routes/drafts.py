@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -15,8 +16,17 @@ from musicai_api.db.session import get_session
 from tab_export.alphatex_exporter import document_to_alphatex
 from tab_export.gp5_exporter import document_to_gp5_bytes
 from tab_schema.models import EditRecord, TabDocument, TabNote
+from tab_schema.reference import detect_reference_profile
 
 router = APIRouter(prefix="/v1/drafts", tags=["drafts"])
+
+
+def _load_document(draft: Draft) -> TabDocument:
+    return TabDocument.model_validate_json(draft.document_json)
+
+
+def _draft_etag(draft: Draft) -> str:
+    return f'"{draft.updated_at.isoformat()}"'
 
 
 class DraftResponse(BaseModel):
@@ -29,6 +39,13 @@ class NotePatch(BaseModel):
     string: int | None = None
     fret: int | None = None
     pitch: str | None = None
+
+
+class BenchmarkComparisonResponse(BaseModel):
+    reference_id: str
+    reference_url: str | None = None
+    metrics: dict[str, object]
+    note_statuses: dict[str, str]
 
 
 @router.get("/{draft_id}", response_model=DraftResponse)
@@ -45,8 +62,13 @@ async def export_alphatex(draft_id: str, session: AsyncSession = Depends(get_ses
     draft = await session.get(Draft, draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
-    document = TabDocument.model_validate_json(draft.document_json)
-    return Response(content=document_to_alphatex(document), media_type="text/plain; charset=utf-8")
+    document = _load_document(draft)
+    tex = await asyncio.to_thread(document_to_alphatex, document)
+    return Response(
+        content=tex,
+        media_type="text/plain; charset=utf-8",
+        headers={"ETag": _draft_etag(draft), "Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get("/{draft_id}/gp5")
@@ -54,12 +76,48 @@ async def export_gp5(draft_id: str, session: AsyncSession = Depends(get_session)
     draft = await session.get(Draft, draft_id)
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
-    document = TabDocument.model_validate_json(draft.document_json)
+    document = _load_document(draft)
     title = (document.meta.title or draft_id).replace(" ", "_")
+    content = await asyncio.to_thread(document_to_gp5_bytes, document)
     return Response(
-        content=document_to_gp5_bytes(document),
+        content=content,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{title}.gp5"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{title}.gp5"',
+            "ETag": _draft_etag(draft),
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
+
+
+@router.get("/{draft_id}/benchmark", response_model=BenchmarkComparisonResponse)
+async def get_draft_benchmark(
+    draft_id: str, session: AsyncSession = Depends(get_session)
+) -> BenchmarkComparisonResponse:
+    from musicai_worker.fusion.scorer import FusionScorer
+
+    draft = await session.get(Draft, draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    document = TabDocument.model_validate_json(draft.document_json)
+    profile = detect_reference_profile(document)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="No ground-truth reference for this draft")
+
+    scorer = FusionScorer()
+    result = scorer.benchmark_against_reference(document, profile.path, window_ms=profile.window_ms)
+
+    note_statuses: dict[str, str] = {}
+    for alignment in result.alignments:
+        if alignment.predicted_note_id:
+            note_statuses[alignment.predicted_note_id] = alignment.status
+
+    return BenchmarkComparisonResponse(
+        reference_id=profile.id,
+        reference_url=profile.url,
+        metrics=result.to_dict(),
+        note_statuses=note_statuses,
     )
 
 

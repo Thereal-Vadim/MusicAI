@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from inference.pipeline_routing import load_pipeline_routing
+from inference.preflight import assert_guitar_demix_available
 from inference.registry import ModelRegistry
 from inference.schemas.model_io import BpmInput, SeparateInput, TranscribeInput, VisionInput
 from judge.judge import JudgeConfig, MusicTheoryJudge
@@ -16,7 +17,13 @@ from musicai_worker.fingering.optimizer import assign_fingering, optimize_sequen
 from musicai_worker.fusion.scorer import FusionScorer
 from musicai_worker.guitar_isolation import GUITAR_PART_LABELS, GuitarPart, isolate_guitar_part
 from musicai_worker.logging_setup import get_logger, log_artifact, setup_logging, stage_timer
-from musicai_worker.stage_runners import log_routing_summary, run_coarse_separation, run_guitar_demix, select_fingering_optimizer
+from musicai_worker.stage_runners import (
+    log_routing_summary,
+    run_coarse_separation,
+    run_dereverb,
+    run_guitar_demix,
+    select_fingering_optimizer,
+)
 from tab_schema.models import SourceMeta, TabDocument, TabMeasure, TabMeta, TabTrack
 from tab_schema.quality import compute_quality_metrics
 from tab_schema.reference import (
@@ -29,6 +36,7 @@ PIPELINE_STAGES = [
     "queued",
     "ingest",
     "separate",
+    "dereverb",
     "guitar_demix",
     "demix_validate",
     "transcribe",
@@ -67,6 +75,8 @@ class TranscriptionPipeline:
         log.info("Registry config=%s", self.registry.runtime_config())
         log_artifact(log_dir, "registry_config.json", self.registry.runtime_config())
         log_artifact(log_dir, "pipeline_routing.json", log_routing_summary(self.routing))
+
+        assert_guitar_demix_available(self.registry, guitar_part, self.routing.guitar_demix)
 
         async def report(
             stage: str,
@@ -141,13 +151,14 @@ class TranscriptionPipeline:
                 ),
             )
             separate_result = coarse.output
-            guitar_raw = separate_result.stem_path
+            guitar_coarse = separate_result.stem_path
+            guitar_raw = guitar_coarse
             log.info(
                 "Coarse separation backend=%s method=%s stems=%s guitar=%s",
                 coarse.backend_id,
                 separate_result.isolation_method,
                 list(separate_result.coarse_stems.keys()),
-                guitar_raw,
+                guitar_coarse,
             )
             log_artifact(
                 log_dir,
@@ -161,13 +172,55 @@ class TranscriptionPipeline:
             stage_duration_sec=separate_metrics.get("elapsed_sec"),
         )
 
+        guitar_raw = guitar_coarse
+        await report("dereverb", "Cleaning reverb / delay from guitar stem", sub_progress=0.0)
+        with stage_timer(get_logger("pipeline", job_id=job_id, stage="dereverb"), "dereverb") as dereverb_metrics:
+            dereverb_run = await run_dereverb(
+                self.registry,
+                self.routing.dereverb,
+                audio=guitar_raw,
+                output_path=work_dir / "stems" / "guitar_dereverb.wav",
+            )
+            if dereverb_run is not None:
+                guitar_raw = dereverb_run.audio
+                log.info(
+                    "Dereverb backend=%s method=%s reduction=%.3f",
+                    dereverb_run.backend_id,
+                    dereverb_run.method,
+                    dereverb_run.diagnostics.get("energy_reduction", 0.0),
+                )
+                log_artifact(
+                    log_dir,
+                    "dereverb.json",
+                    {
+                        "backend_id": dereverb_run.backend_id,
+                        "method": dereverb_run.method,
+                        "path": str(dereverb_run.audio),
+                        **dereverb_run.diagnostics,
+                    },
+                )
+            else:
+                log.info("Dereverb skipped; using raw coarse guitar stem")
+        await report(
+            "dereverb",
+            (
+                f"Dereverb {dereverb_run.method}"
+                if dereverb_run is not None
+                else "Dereverb skipped"
+            ),
+            sub_progress=1.0,
+            stage_duration_sec=dereverb_metrics.get("elapsed_sec"),
+        )
+
         demix_run = None
         validation_report = None
         stem_path = guitar_raw
         isolation_method = separate_result.isolation_method or "coarse_multi"
+        if dereverb_run is not None:
+            isolation_method = f"{isolation_method}+{dereverb_run.backend_id}"
 
         if guitar_part != "combined":
-            await report("guitar_demix", "Guitar de-mix (Wave-U-Net → CASA fallback)", sub_progress=0.0)
+            await report("guitar_demix", "Guitar de-mix (solo / rhythm)", sub_progress=0.0)
             with stage_timer(
                 get_logger("pipeline", job_id=job_id, stage="guitar_demix"), "guitar_demix"
             ) as demix_metrics:
@@ -257,12 +310,13 @@ class TranscriptionPipeline:
         write_stems_manifest(
             work_dir,
             guitar_part=guitar_part,
-            demucs_stem=guitar_raw,
+            demucs_stem=guitar_coarse,
             transcription_stem=stem_path,
             input_audio=audio_path,
             coarse_stems=separate_result.coarse_stems,
             solo_demix=demix_run.solo if demix_run else None,
             rhythm_demix=demix_run.rhythm if demix_run else None,
+            dereverb_stem=dereverb_run.audio if dereverb_run else None,
         )
 
         await report("transcribe", "Running Basic Pitch transcription", sub_progress=0.0)

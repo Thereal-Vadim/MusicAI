@@ -133,7 +133,7 @@ def _low_high_shelf(y: np.ndarray, sr: int, low_cut: float, high_cut: float) -> 
     return sosfilt(sos_lp, sosfilt(sos_hp, y))
 
 
-def _solo_emphasis(y: np.ndarray, sr: int, stereo: np.ndarray | None = None) -> np.ndarray:
+def _solo_signal(y: np.ndarray, sr: int, stereo: np.ndarray | None = None) -> np.ndarray:
     if stereo is not None:
         length = min(y.shape[0], stereo.shape[1])
         y = y[:length]
@@ -147,10 +147,14 @@ def _solo_emphasis(y: np.ndarray, sr: int, stereo: np.ndarray | None = None) -> 
     mixed = librosa.effects.preemphasis(mixed, coef=0.97)
     env = _onset_envelope(mixed, sr)
     mixed *= np.clip(1.0 - 0.55 * env, 0.35, 1.0)
-    return _normalize(mixed)
+    return mixed.astype(np.float32)
 
 
-def _rhythm_emphasis(
+def _solo_emphasis(y: np.ndarray, sr: int, stereo: np.ndarray | None = None) -> np.ndarray:
+    return _normalize(_solo_signal(y, sr, stereo))
+
+
+def _rhythm_signal(
     y: np.ndarray,
     sr: int,
     stereo: np.ndarray | None = None,
@@ -167,7 +171,64 @@ def _rhythm_emphasis(
 
     env = _onset_envelope(mixed, sr)
     mixed *= np.clip(0.72 + cfg.onset_boost * env, 0.72, 1.45)
-    return _normalize(mixed)
+    return mixed.astype(np.float32)
+
+
+def _rhythm_emphasis(
+    y: np.ndarray,
+    sr: int,
+    stereo: np.ndarray | None = None,
+    cfg: RhythmIsolationConfig = RHYTHM_CFG,
+) -> np.ndarray:
+    return _normalize(_rhythm_signal(y, sr, stereo, cfg))
+
+
+def demix_guitar_stems(
+    source: Path,
+    output_dir: Path,
+    *,
+    mix_path: Path | None = None,
+) -> tuple[Path, Path, dict[str, float]]:
+    """
+    Split a mono guitar stem into solo + rhythm WAVs using HPSS/stereo soft masks.
+
+    Uses Wiener-style energy ratios so solo + rhythm stay phase-aligned with the input.
+    Stereo mix_path strongly improves rhythm/solo separation on panned rock/metal mixes.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    standard_dir = output_dir / "standard"
+    standard_dir.mkdir(parents=True, exist_ok=True)
+    solo_path = standard_dir / "solo.wav"
+    rhythm_path = standard_dir / "rhythm.wav"
+
+    log.info("Demix guitar stems from %s mix=%s", source.name, mix_path)
+    y, sr = _load_mono(source)
+    stereo = _load_stereo_if_available(mix_path, sr)
+
+    solo_sig = _solo_signal(y, sr, stereo)
+    rhythm_sig = _rhythm_signal(y, sr, stereo)
+
+    solo_env = _smooth_envelope(np.abs(solo_sig), sr, window_ms=35.0)
+    rhythm_env = _smooth_envelope(np.abs(rhythm_sig), sr, window_ms=35.0)
+    total = solo_env + rhythm_env + 1e-8
+    solo_mask = solo_env / total
+    rhythm_mask = rhythm_env / total
+
+    solo = _normalize(y * solo_mask)
+    rhythm = _normalize(y * rhythm_mask)
+
+    sf.write(str(solo_path), solo, sr)
+    sf.write(str(rhythm_path), rhythm, sr)
+
+    diagnostics = {
+        "solo_rms": float(np.sqrt(np.mean(solo**2))),
+        "rhythm_rms": float(np.sqrt(np.mean(rhythm**2))),
+        "solo_mask_mean": float(solo_mask.mean()),
+        "rhythm_mask_mean": float(rhythm_mask.mean()),
+        "stereo_used": float(stereo is not None),
+    }
+    log.info("Demix complete diagnostics=%s", diagnostics)
+    return solo_path, rhythm_path, diagnostics
 
 
 def isolate_guitar_part(

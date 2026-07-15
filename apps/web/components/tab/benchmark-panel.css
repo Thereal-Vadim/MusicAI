@@ -1,0 +1,120 @@
+.benchmark-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 10px;
+}
+
+.benchmark-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.benchmark-metric {
+  background: #fff;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 0.65rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.benchmark-metric--overall {
+  border-color: #228be6;
+  background: #e7f5ff;
+}
+
+.benchmark-metric-label {
+  font-size: 0.75rem;
+  color: #868e96;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.benchmark-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.benchmark-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+  color: #495057;
+}
+
+.benchmark-legend-swatch,
+.benchmark-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.benchmark-table-wrap {
+  overflow: auto;
+  max-height: 280px;
+  border: 1px solid #dee2e6;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.benchmark-table th,
+.benchmark-table td {
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid #f1f3f5;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.benchmark-table th {
+  position: sticky;
+  top: 0;
+  background: #f8f9fa;
+  font-weight: 600;
+  color: #495057;
+}
+
+.benchmark-ref-link {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.tab-sheet-benchmark-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding: 0.65rem 1rem;
+  background: #fff;
+  border-top: 1px solid #dee2e6;
+  font-size: 0.8125rem;
+}
+
+.tab-sheet-benchmark-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #f1f3f5;
+  color: #495057;
+}
+
+.tab-sheet-benchmark-chip strong {
+  color: #212529;
+}

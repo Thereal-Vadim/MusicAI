@@ -10,8 +10,29 @@ from pathlib import Path
 from tab_schema.models import TabDocument, TabMeasure, TabNote
 
 TEMPLATE_PATH = Path(__file__).parent / "assets" / "template.gp5"
+TEMPLATE_URL = (
+    "https://raw.githubusercontent.com/Perlence/PyGuitarPro/master/tests/Demo%20v5.gp5"
+)
 TICKS_PER_QUARTER = 960
 TICKS_PER_MEASURE_4_4 = 3840
+
+_TEMPLATE: object | None = None
+
+
+def _load_template() -> object:
+    global _TEMPLATE
+    if _TEMPLATE is not None:
+        return _TEMPLATE
+
+    import guitarpro
+    import urllib.request
+
+    if not TEMPLATE_PATH.exists():
+        TEMPLATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(TEMPLATE_URL, TEMPLATE_PATH)
+
+    _TEMPLATE = guitarpro.parse(str(TEMPLATE_PATH))
+    return _TEMPLATE
 
 
 def _duration_value(duration_ms: float, bpm: float) -> int:
@@ -26,19 +47,8 @@ def _duration_value(duration_ms: float, bpm: float) -> int:
     return 32
 
 
-def _load_template() -> object:
-    import guitarpro
-    import urllib.request
-
-    if TEMPLATE_PATH.exists():
-        return guitarpro.parse(str(TEMPLATE_PATH))
-    url = "https://raw.githubusercontent.com/Perlence/PyGuitarPro/master/tests/Demo%20v5.gp5"
-    with urllib.request.urlopen(url) as stream:
-        return guitarpro.parse(stream)
-
-
 def _apply_measure(track, measure: TabMeasure, template_beat, bpm: float, header_index: int) -> None:
-    from guitarpro.models import Duration, Marker, Note, NoteType, Beat
+    from guitarpro.models import Duration, Marker, Note, NoteType
 
     if header_index < len(track.song.measureHeaders) and measure.section:
         track.song.measureHeaders[header_index].marker = Marker(title=measure.section)
@@ -67,6 +77,21 @@ def _apply_measure(track, measure: TabMeasure, template_beat, bpm: float, header
     voice.beats = beats
 
 
+def _prepare_single_guitar_track(song, *, track_name: str, measure_count: int) -> None:
+    """Keep one guitar track and drop demo template content beyond the draft."""
+    while len(song.tracks) > 1:
+        del song.tracks[-1]
+
+    track = song.tracks[0]
+    track.name = track_name
+
+    measure_count = max(measure_count, 1)
+    while len(track.measures) > measure_count:
+        del track.measures[-1]
+    while len(song.measureHeaders) > measure_count:
+        del song.measureHeaders[-1]
+
+
 def document_to_gp5_bytes(document: TabDocument) -> bytes:
     import guitarpro
 
@@ -76,19 +101,19 @@ def document_to_gp5_bytes(document: TabDocument) -> bytes:
     song.album = document.meta.album or ""
     song.tempo = int(round(document.meta.bpm))
 
+    track_name = document.tracks[0].name if document.tracks else "Guitar"
+    max_measure_index = max(
+        (measure.index for tab_track in document.tracks for measure in tab_track.measures),
+        default=0,
+    )
+    _prepare_single_guitar_track(song, track_name=track_name, measure_count=max_measure_index + 1)
+
     track = song.tracks[0]
-    track.name = document.tracks[0].name if document.tracks else "Guitar"
     template_beat = track.measures[0].voices[0].beats[0]
 
-    max_measures = max((len(t.measures) for t in document.tracks), default=0)
-    max_measures = max(max_measures, len(song.measureHeaders))
-
-    for track_idx, tab_track in enumerate(document.tracks):
-        gp_track = song.tracks[min(track_idx, len(song.tracks) - 1)]
-        if track_idx > 0 and track_idx >= len(song.tracks):
-            break
+    for tab_track in document.tracks:
         for measure in tab_track.measures:
-            _apply_measure(gp_track, measure, template_beat, document.meta.bpm, measure.index)
+            _apply_measure(track, measure, template_beat, document.meta.bpm, measure.index)
 
     buffer = io.BytesIO()
     guitarpro.write(song, buffer, version=(5, 1, 0))
