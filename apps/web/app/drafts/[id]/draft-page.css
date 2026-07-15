@@ -1,0 +1,77 @@
+.draft-page {
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --border: #dee2e6;
+  --text: #212529;
+  --muted: #6c757d;
+  --accent: #228be6;
+  --warn: #f59f00;
+  --danger: #e03131;
+  --ok: #2f9e44;
+
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.draft-page main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 3rem;
+}
+
+.draft-page h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.draft-page .muted {
+  color: var(--muted);
+}
+
+.draft-page .toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.draft-page .toolbar button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.draft-page .toolbar button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.draft-page .toolbar a.download {
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.draft-page .editor-panel {
+  margin-top: 1rem;
+}
+
+.draft-page .stem-preview,
+.draft-page .stem-audio-page {
+  margin: 0;
+  background: var(--surface);
+}
+
+.draft-page .stem-download-link {
+  color: var(--accent);
+}

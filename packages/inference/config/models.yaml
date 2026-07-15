@@ -15,3 +15,17 @@ models:
     min_tracking_confidence: 0.5
   librosa/beat:
     adapter: librosa
+  bs-roformer/guitar-4stem:
+    adapter: bs_roformer
+    checkpoint: null
+    device: mps
+    segment_size: 256
+  bs-roformer/vocals-isolation:
+    adapter: bs_roformer
+    checkpoint: null
+    device: mps
+    segment_size: 256
+  wave-unet/guitar-demix:
+    adapter: wave_unet
+    weights_path: null
+    device: mps

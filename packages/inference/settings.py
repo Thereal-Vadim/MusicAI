@@ -20,6 +20,22 @@ class InferenceSettings(BaseSettings):
     mediapipe_min_tracking_confidence: float = 0.5
     replicate_api_token: str | None = None
     models_config_path: Path | None = None
+    pipeline_config_path: Path | None = None
+
+    # BS-RoFormer (coarse separation)
+    bs_roformer_checkpoint: Path | None = None
+    bs_roformer_device: str = "cpu"
+    bs_roformer_segment_size: int = 256
+
+    # Wave-U-Net (guitar demix)
+    wave_unet_weights: Path | None = None
+    wave_unet_device: str = "cpu"
+
+    # Fingering optimizer
+    fingering_optimizer: Literal["aco", "dp"] = "dp"
+    aco_n_ants: int = 24
+    aco_n_iterations: int = 50
+    aco_max_fret_span: int = 4
 
 
 inference_settings = InferenceSettings()

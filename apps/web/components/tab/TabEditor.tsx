@@ -30,24 +30,47 @@ export function TabEditor({ document, onEditNote }: TabEditorProps) {
   const [conflictIndex, setConflictIndex] = useState(0);
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
   const { currentMs, playing, play, pause, seek } = usePlaybackClock(0);
+  const [ytReady, setYtReady] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ytPlayerRef = useRef<YTPlayer | null>(null);
   const source = document.meta.source;
 
   useEffect(() => {
-    if (source.type !== "youtube" || !source.youtube_id) return;
+    if (source.type !== "youtube" || !source.youtube_id) {
+      setYtReady(false);
+      return;
+    }
+    let cancelled = false;
+    setYtReady(false);
+    ytPlayerRef.current = null;
+
     loadYouTubeApi().then(() => {
-      if (!window.YT?.Player) return;
-      ytPlayerRef.current = new window.YT.Player("yt-player", {
+      if (cancelled || !window.YT?.Player) return;
+      new window.YT.Player("yt-player", {
         videoId: source.youtube_id!,
+        events: {
+          onReady: (event) => {
+            if (cancelled) return;
+            ytPlayerRef.current = event.target;
+            setYtReady(true);
+          },
+        },
       });
     });
+
+    return () => {
+      cancelled = true;
+      ytPlayerRef.current = null;
+      setYtReady(false);
+    };
   }, [source.type, source.youtube_id]);
 
   useEffect(() => {
     syncAudioElement(audioRef.current, currentMs, playing);
-    syncYouTubePlayer(ytPlayerRef.current, currentMs, playing);
-  }, [currentMs, playing]);
+    if (ytReady) {
+      syncYouTubePlayer(ytPlayerRef.current, currentMs, playing);
+    }
+  }, [currentMs, playing, ytReady]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

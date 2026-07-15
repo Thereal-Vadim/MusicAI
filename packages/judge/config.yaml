@@ -1,4 +1,6 @@
 snap_audio_confidence_threshold: 0.5
+high_confidence_threshold: 0.95
+snap_confidence_bonus: 0.08
 beats_per_measure: 4
 min_note_duration_ms: 50.0
 max_simultaneous_notes: 4

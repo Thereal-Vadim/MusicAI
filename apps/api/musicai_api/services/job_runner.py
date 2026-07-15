@@ -12,7 +12,32 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from musicai_api.db.models import Draft, Job
+from tab_schema.job_progress import read_job_status
 from tab_schema.models import TabDocument
+
+
+async def _sync_live_status(job_id: str, work_dir: Path, proc: asyncio.subprocess.Process) -> None:
+    from musicai_api.db.session import SessionLocal
+
+    while proc.returncode is None:
+        live = read_job_status(work_dir)
+        if live:
+            async with SessionLocal() as session:
+                job = await session.get(Job, job_id)
+                if job and job.status == "running":
+                    job.stage = live.stage
+                    job.stage_detail = live.detail
+                    await session.commit()
+        await asyncio.sleep(0.8)
+
+    live = read_job_status(work_dir)
+    if live:
+        async with SessionLocal() as session:
+            job = await session.get(Job, job_id)
+            if job:
+                job.stage = live.stage
+                job.stage_detail = live.detail
+                await session.commit()
 
 
 async def run_job_in_background(job_id: str, work_dir: Path) -> None:
@@ -23,7 +48,7 @@ async def run_job_in_background(job_id: str, work_dir: Path) -> None:
         if not job:
             return
         job.status = "running"
-        job.stage = "ingest"
+        job.stage = "queued"
         await session.commit()
 
     proc = await asyncio.create_subprocess_exec(
@@ -37,18 +62,23 @@ async def run_job_in_background(job_id: str, work_dir: Path) -> None:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    sync_task = asyncio.create_task(_sync_live_status(job_id, work_dir, proc))
     stdout, stderr = await proc.communicate()
+    sync_task.cancel()
+    try:
+        await sync_task
+    except asyncio.CancelledError:
+        pass
 
     async with SessionLocal() as session:
         job = await session.get(Job, job_id)
         if not job:
             return
 
-        status_path = work_dir / "status.json"
-        if status_path.exists():
-            status = json.loads(status_path.read_text())
-            job.stage = status.get("stage", job.stage)
-            job.stage_detail = status.get("detail", "")
+        live = read_job_status(work_dir)
+        if live:
+            job.stage = live.stage
+            job.stage_detail = live.detail
 
         draft_path = work_dir / "draft.json"
         if proc.returncode == 0 and draft_path.exists():

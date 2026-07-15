@@ -27,6 +27,33 @@ def _yt_dlp_cmd() -> list[str]:
     return [sys.executable, "-m", "yt_dlp"]
 
 
+def _resolve_js_runtime() -> list[str]:
+    """yt-dlp needs an external JS runtime for YouTube challenge solving."""
+    for runtime in ("deno", "node", "bun"):
+        if shutil.which(runtime):
+            log.info("Using yt-dlp JS runtime: %s", runtime)
+            return ["--js-runtimes", runtime]
+    log.warning(
+        "No JS runtime (deno/node/bun) on PATH — YouTube downloads may fail with HTTP 403. "
+        "Install Node 20+ or Deno and retry."
+    )
+    return []
+
+
+def _yt_dlp_common_args(*, ffmpeg: str | None) -> list[str]:
+    args: list[str] = [
+        *_resolve_js_runtime(),
+        "--remote-components",
+        "ejs:github",
+        "--extractor-args",
+        "youtube:player_client=default,-android_sdkless",
+        "--no-playlist",
+    ]
+    if ffmpeg:
+        args.extend(["--ffmpeg-location", ffmpeg])
+    return args
+
+
 def _resolve_ffmpeg() -> str | None:
     system = shutil.which("ffmpeg")
     if system:
@@ -87,10 +114,7 @@ def download_youtube(
     ytdlp = _yt_dlp_cmd()
     ffmpeg = _resolve_ffmpeg()
     has_ffmpeg = ffmpeg is not None
-
-    ffmpeg_args: list[str] = []
-    if ffmpeg:
-        ffmpeg_args = ["--ffmpeg-location", ffmpeg]
+    common_args = _yt_dlp_common_args(ffmpeg=ffmpeg)
 
     duration_args: list[str] = []
     if max_duration_sec is not None and has_ffmpeg:
@@ -104,12 +128,11 @@ def download_youtube(
     log.info("Downloading YouTube audio id=%s url=%s", youtube_id, url)
     audio_cmd = [
         *ytdlp,
-        *ffmpeg_args,
+        *common_args,
         *duration_args,
         "-x",
         "--audio-format",
         "wav",
-        "--no-playlist",
         "-o",
         str(output_dir / f"{youtube_id}.%(ext)s"),
         url,
@@ -138,11 +161,10 @@ def download_youtube(
     log.info("Downloading YouTube video id=%s", youtube_id)
     video_cmd = [
         *ytdlp,
-        *ffmpeg_args,
+        *common_args,
         *duration_args,
         "-f",
         "best[height<=720]/best",
-        "--no-playlist",
         "-o",
         str(video_out),
         url,

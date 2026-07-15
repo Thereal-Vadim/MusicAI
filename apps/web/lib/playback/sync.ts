@@ -93,14 +93,27 @@ export function loadYouTubeApi(): Promise<void> {
   });
 }
 
+export function isYTPlayerReady(player: YTPlayer | null | undefined): player is YTPlayer {
+  return (
+    !!player &&
+    typeof player.getCurrentTime === "function" &&
+    typeof player.getPlayerState === "function" &&
+    typeof player.seekTo === "function"
+  );
+}
+
 export function syncYouTubePlayer(player: YTPlayer | null, currentMs: number, playing: boolean) {
-  if (!player) return;
+  if (!isYTPlayerReady(player)) return;
   const targetSec = currentMs / 1000;
-  if (Math.abs(player.getCurrentTime() - targetSec) > 0.15) {
-    player.seekTo(targetSec, true);
+  try {
+    if (Math.abs(player.getCurrentTime() - targetSec) > 0.15) {
+      player.seekTo(targetSec, true);
+    }
+    const state = player.getPlayerState();
+    const YT_PLAYING = window.YT?.PlayerState.PLAYING ?? 1;
+    if (playing && state !== YT_PLAYING) player.playVideo();
+    if (!playing && state === YT_PLAYING) player.pauseVideo();
+  } catch {
+    // Player can still be initializing between onReady and first sync tick.
   }
-  const state = player.getPlayerState();
-  const YT_PLAYING = window.YT?.PlayerState.PLAYING ?? 1;
-  if (playing && state !== YT_PLAYING) player.playVideo();
-  if (!playing && state === YT_PLAYING) player.pauseVideo();
 }

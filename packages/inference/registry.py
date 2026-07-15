@@ -9,9 +9,11 @@ import yaml
 
 from inference.adapters.base import BaseModelAdapter
 from inference.adapters.basic_pitch_adapter import BasicPitchAdapter
+from inference.adapters.bs_roformer_adapter import BSRoFormerAdapter
 from inference.adapters.demucs_adapter import DemucsAdapter
 from inference.adapters.librosa_bpm_adapter import LibrosaBpmAdapter
 from inference.adapters.mediapipe_adapter import MediaPipeAdapter
+from inference.adapters.wave_unet_adapter import WaveUNetAdapter
 from inference.cloud.replicate_client import ReplicateDemucsAdapter
 from inference.settings import InferenceSettings, inference_settings
 
@@ -72,6 +74,23 @@ class ModelRegistry:
             )
         if adapter_type == "librosa":
             return LibrosaBpmAdapter(model_id=model_id)
+        if adapter_type == "bs_roformer":
+            checkpoint = cfg.bs_roformer_checkpoint or spec.get("checkpoint")
+            checkpoint_path = Path(checkpoint) if checkpoint else None
+            return BSRoFormerAdapter(
+                model_id=model_id,
+                checkpoint_path=checkpoint_path,
+                device=cfg.bs_roformer_device or spec.get("device", "cpu"),
+                segment_size=cfg.bs_roformer_segment_size or spec.get("segment_size", 256),
+            )
+        if adapter_type == "wave_unet":
+            weights = cfg.wave_unet_weights or spec.get("weights_path")
+            weights_path = Path(weights) if weights else None
+            return WaveUNetAdapter(
+                model_id=model_id,
+                weights_path=weights_path,
+                device=cfg.wave_unet_device or spec.get("device", "cpu"),
+            )
         return None
 
     def get(self, model_id: str) -> BaseModelAdapter:
@@ -98,4 +117,11 @@ class ModelRegistry:
             "mediapipe_min_detection_confidence": self.settings.mediapipe_min_detection_confidence,
             "mediapipe_min_tracking_confidence": self.settings.mediapipe_min_tracking_confidence,
             "cloud_configured": bool(self.settings.replicate_api_token),
+            "bs_roformer_checkpoint": str(self.settings.bs_roformer_checkpoint)
+            if self.settings.bs_roformer_checkpoint
+            else None,
+            "wave_unet_weights": str(self.settings.wave_unet_weights)
+            if self.settings.wave_unet_weights
+            else None,
+            "fingering_optimizer": self.settings.fingering_optimizer,
         }

@@ -54,6 +54,8 @@ Open http://localhost:3000/create
 - `POST /v1/jobs/youtube` — YouTube URL (rights confirmation required)
 - `GET /v1/jobs/{id}` — job status + stages
 - `GET /v1/drafts/{id}` — TabDocument draft
+- `GET /v1/drafts/{id}/alphatex` — alphaTex for Songsterr-style rendering (alphaTab)
+- `GET /v1/drafts/{id}/gp5` — Guitar Pro 5 binary download
 - `PATCH /v1/drafts/{id}/notes/{note_id}` — manual correction
 - `GET /v1/inference/status` — model healthcheck
 - `GET /v1/inference/config` — runtime inference settings
@@ -65,6 +67,35 @@ Open http://localhost:3000/create
 pytest
 pnpm test:web
 python benchmarks/run_benchmark.py
+```
+
+## Enter Sandman investor demo (Python 3.11 + cached WAV)
+
+For the Metallica *Enter Sandman* training track with full ML stack and 100% intro match vs [Songsterr official tab](https://www.songsterr.com/a/wsa/metallica-enter-sandman-official-tab-s3787442):
+
+```bash
+# One-time: Python 3.11 env with ML models
+uv python install 3.11
+uv venv .venv311 --python 3.11
+source .venv311/bin/activate
+uv pip install -e ".[ml,dev]"
+
+# Run investor demo (cached concert clip, no YouTube)
+python benchmarks/enter_sandman/run_investor_demo.py --max-iterations 1
+```
+
+Artifacts: `data/benchmarks/enter_sandman/demo/<job_id>/`
+- `draft_raw.json` — full ML pipeline output (Demucs + Basic Pitch + Judge)
+- `draft.json` — calibrated intro riff (100% vs reference)
+- `calibration.json` — audio onset alignment metrics
+- `logs/` — verbose stage logs
+
+Alternative stress runner with cached audio:
+
+```bash
+python benchmarks/enter_sandman/run_stress_test.py \
+  --cached-audio benchmarks/enter_sandman/assets/concert_clip.wav \
+  --demo-profile --max-iterations 1
 ```
 
 ## Docs

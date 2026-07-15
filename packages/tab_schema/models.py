@@ -15,13 +15,43 @@ class SourceMeta(BaseModel):
 
 
 class TabMeta(BaseModel):
+    title: str | None = None
+    artist: str | None = None
+    album: str | None = None
     bpm: float = 120.0
     key: str | None = None
     mode: str | None = None
     tuning: list[str] = Field(default_factory=lambda: ["E2", "A2", "D3", "G3", "B3", "E4"])
+    guitar_part: Literal["combined", "solo", "rhythm"] = "combined"
     source: SourceMeta
     pipeline_version: str = "0.1.0"
     overall_confidence: float = 0.0
+    quality: "QualityMeta | None" = None
+
+
+class QualityMeta(BaseModel):
+    """Actionable transcription quality — penalties only vs Songsterr reference when available."""
+
+    notes_total: int = 0
+    snapped_count: int = 0
+    high_confidence_count: int = 0
+    conflict_count: int = 0
+    snapped_pct: float = 0.0
+    high_confidence_pct: float = 0.0
+    conflict_pct: float = 0.0
+    mean_overall: float = 0.0
+    key_confidence: float = 0.0
+    reference_url: str | None = None
+    reference_match_pct: float | None = None
+    reference_mismatch_count: int = 0
+
+
+class NoteTechnique(BaseModel):
+    palm_mute: bool = False
+    slide: Literal["up", "down", "into_from_below", "into_from_above"] | None = None
+    vibrato: bool = False
+    tie: bool = False
+    ghost: bool = False
 
 
 class NoteConfidence(BaseModel):
@@ -58,6 +88,7 @@ class TabNote(BaseModel):
     sources: NoteSources = Field(default_factory=NoteSources)
     judge: JudgeResult = Field(default_factory=JudgeResult)
     flags: list[str] = Field(default_factory=list)
+    technique: NoteTechnique | None = None
 
 
 class TabMeasure(BaseModel):
@@ -65,11 +96,15 @@ class TabMeasure(BaseModel):
     start_ms: float
     confidence: float = 1.0
     chord: str | None = None
+    time_signature: tuple[int, int] | None = None
+    section: str | None = None
+    tempo_bpm: float | None = None
     notes: list[TabNote] = Field(default_factory=list)
 
 
 class TabTrack(BaseModel):
     instrument: Literal["guitar"] = "guitar"
+    name: str | None = None
     measures: list[TabMeasure] = Field(default_factory=list)
 
 

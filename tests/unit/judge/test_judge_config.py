@@ -7,6 +7,7 @@ from judge.rules import detect_key_with_fallback, validate_simultaneous_notes
 def test_judge_config_from_yaml():
     cfg = JudgeConfig.from_yaml()
     assert cfg.snap_audio_confidence_threshold == 0.5
+    assert cfg.high_confidence_threshold == 0.95
     assert cfg.max_simultaneous_notes == 4
 
 

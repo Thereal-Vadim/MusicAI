@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from musicai_api.db.models import Draft
 from musicai_api.db.session import get_session
+from tab_export.alphatex_exporter import document_to_alphatex
+from tab_export.gp5_exporter import document_to_gp5_bytes
 from tab_schema.models import EditRecord, TabDocument, TabNote
 
 router = APIRouter(prefix="/v1/drafts", tags=["drafts"])
@@ -35,6 +38,29 @@ async def get_draft(draft_id: str, session: AsyncSession = Depends(get_session))
         raise HTTPException(status_code=404, detail="Draft not found")
     document = TabDocument.model_validate_json(draft.document_json)
     return DraftResponse(id=draft.id, job_id=draft.job_id, document=document)
+
+
+@router.get("/{draft_id}/alphatex")
+async def export_alphatex(draft_id: str, session: AsyncSession = Depends(get_session)) -> Response:
+    draft = await session.get(Draft, draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    document = TabDocument.model_validate_json(draft.document_json)
+    return Response(content=document_to_alphatex(document), media_type="text/plain; charset=utf-8")
+
+
+@router.get("/{draft_id}/gp5")
+async def export_gp5(draft_id: str, session: AsyncSession = Depends(get_session)) -> Response:
+    draft = await session.get(Draft, draft_id)
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    document = TabDocument.model_validate_json(draft.document_json)
+    title = (document.meta.title or draft_id).replace(" ", "_")
+    return Response(
+        content=document_to_gp5_bytes(document),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{title}.gp5"'},
+    )
 
 
 @router.patch("/{draft_id}/notes/{note_id}", response_model=DraftResponse)

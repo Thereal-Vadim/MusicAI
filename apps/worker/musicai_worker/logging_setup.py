@@ -7,6 +7,7 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -34,6 +35,29 @@ class PipelineLogFilter(logging.Filter):
         return True
 
 
+class LiveJsonlHandler(logging.Handler):
+    """Append structured log lines for live UI tailing."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.path = path
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            entry = {
+                "ts": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+                "level": record.levelname,
+                "stage": getattr(record, "stage", "-"),
+                "job_id": getattr(record, "job_id", "-"),
+                "message": record.getMessage(),
+            }
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
+
 def setup_logging(
     job_id: str = "-",
     log_dir: Path | None = None,
@@ -59,6 +83,11 @@ def setup_logging(
         file_handler.setFormatter(formatter)
         file_handler.addFilter(PipelineLogFilter())
         musicai_logger.addHandler(file_handler)
+
+        live_handler = LiveJsonlHandler(log_dir / "live.jsonl")
+        live_handler.setLevel(level)
+        live_handler.addFilter(PipelineLogFilter())
+        musicai_logger.addHandler(live_handler)
 
     return musicai_logger
 

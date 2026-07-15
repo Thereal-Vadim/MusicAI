@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@coderline/alphatab": "^1.8.1",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

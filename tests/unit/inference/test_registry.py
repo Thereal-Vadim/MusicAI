@@ -12,6 +12,8 @@ def test_registry_loads_models():
     assert "basic-pitch/v1" in models
     assert "mediapipe/hands" in models
     assert "librosa/beat" in models
+    assert "bs-roformer/guitar-4stem" in models
+    assert "wave-unet/guitar-demix" in models
 
 
 def test_registry_healthcheck():
@@ -45,5 +47,5 @@ def test_runtime_config_exposes_settings():
 def test_describe_all_includes_health():
     registry = ModelRegistry.from_config()
     descriptions = registry.describe_all()
-    assert len(descriptions) >= 4
+    assert len(descriptions) >= 6
     assert all("healthy" in item for item in descriptions)

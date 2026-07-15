@@ -1,0 +1,27 @@
+# Stage → model routing. Primary is tried first; fallbacks run when healthcheck() is false
+# or predict() raises. Swap IDs here without touching pipeline code.
+#
+# Ensemble (2-stem RoFormer + Demucs): RoFormer isolates vocals, Demucs splits the
+# instrumental into bass / drums / guitar — so CASA receives a clean guitar stem.
+
+coarse_separation:
+  primary: ensemble/roformer_plus_demucs
+  ensemble:
+    step_1: bs-roformer/vocals-isolation   # vocals + instrumental (2-stem ViperX)
+    step_2: demucs/htdemucs_6s            # split instrumental → bass / drums / guitar
+  fallbacks:
+    - demucs/htdemucs_6s
+
+guitar_demix:
+  primary: wave-unet/guitar-demix
+  fallbacks:
+    - casa/v1
+
+fingering:
+  optimizer: aco  # aco | dp
+  aco:
+    n_ants: 24
+    n_iterations: 50
+    max_fret_span: 4
+    open_string_bonus: 2.0
+    string_skip_penalty: 3.5

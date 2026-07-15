@@ -166,21 +166,27 @@ def chord_pitch_classes(symbol: str) -> set[int]:
     return {(root_pc + interval) % 12 for interval in template}
 
 
-def snap_midi_to_scale(midi: int, scale: set[int]) -> int:
+def snap_midi_to_pitch_classes(midi: int, allowed: set[int]) -> int:
+    if not allowed:
+        return midi
     pc = midi_to_pitch_class(midi)
-    if pc in scale:
+    if pc in allowed:
         return midi
 
     best_midi = midi
     best_dist = 999
     for delta in range(-6, 7):
         candidate = midi + delta
-        if midi_to_pitch_class(candidate) in scale:
+        if midi_to_pitch_class(candidate) in allowed:
             dist = abs(delta)
             if dist < best_dist:
                 best_dist = dist
                 best_midi = candidate
     return best_midi
+
+
+def snap_midi_to_scale(midi: int, scale: set[int]) -> int:
+    return snap_midi_to_pitch_classes(midi, scale)
 
 
 def is_playable_fret(fret: int, string_num: int) -> bool:

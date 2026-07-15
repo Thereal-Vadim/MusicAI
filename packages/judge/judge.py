@@ -20,7 +20,7 @@ from judge.rules import (
     midi_to_pitch_class,
     name_to_midi,
     scale_pitch_classes,
-    snap_midi_to_scale,
+    snap_midi_to_pitch_classes,
     validate_simultaneous_notes,
     validate_temporal_order,
 )
@@ -31,6 +31,8 @@ from tab_schema.models import JudgeResult, NoteConfidence, TabNote
 @dataclass
 class JudgeConfig:
     snap_audio_confidence_threshold: float = 0.5
+    high_confidence_threshold: float = 0.95
+    snap_confidence_bonus: float = 0.08
     beats_per_measure: int = 4
     min_note_duration_ms: float = 50.0
     max_simultaneous_notes: int = 4
@@ -42,6 +44,8 @@ class JudgeConfig:
         cfg = settings or judge_settings
         return cls(
             snap_audio_confidence_threshold=cfg.judge_snap_audio_confidence_threshold,
+            high_confidence_threshold=cfg.judge_high_confidence_threshold,
+            snap_confidence_bonus=cfg.judge_snap_confidence_bonus,
             beats_per_measure=cfg.judge_beats_per_measure,
             min_note_duration_ms=cfg.judge_min_note_duration_ms,
             max_simultaneous_notes=cfg.judge_max_simultaneous_notes,
@@ -57,6 +61,8 @@ class JudgeConfig:
         data = yaml.safe_load(yaml_path.read_text()) or {}
         return cls(
             snap_audio_confidence_threshold=float(data.get("snap_audio_confidence_threshold", 0.5)),
+            high_confidence_threshold=float(data.get("high_confidence_threshold", 0.95)),
+            snap_confidence_bonus=float(data.get("snap_confidence_bonus", 0.08)),
             beats_per_measure=int(data.get("beats_per_measure", 4)),
             min_note_duration_ms=float(data.get("min_note_duration_ms", 50.0)),
             max_simultaneous_notes=int(data.get("max_simultaneous_notes", 4)),
@@ -181,11 +187,12 @@ class MusicTheoryJudge:
 
         in_scale = pc in scale
         in_chord = pc in chord.pitch_classes if chord and chord.pitch_classes else in_scale
+        harmony_ok = in_scale and in_chord
 
         if not in_scale:
             flags.append("chromatic_note")
             stats.chromatic_notes += 1
-        if chord and chord.pitch_classes and not in_chord and not in_scale:
+        if chord and chord.pitch_classes and not in_chord:
             flags.append("out_of_harmony")
 
         if note.duration_ms < self.config.min_note_duration_ms:
@@ -218,25 +225,51 @@ class MusicTheoryJudge:
         snap_reason: str | None = None
         original_pitch = note.original_pitch
 
-        should_snap = (
-            note.confidence.audio < self.config.snap_audio_confidence_threshold
-            and (not in_scale or "out_of_harmony" in flags)
-        )
-
-        if should_snap:
-            snapped_midi = snap_midi_to_scale(midi, scale or {pc})
+        if not harmony_ok:
+            snap_target = (
+                chord.pitch_classes
+                if chord and chord.pitch_classes
+                else scale
+            )
+            snapped_midi = snap_midi_to_pitch_classes(midi, snap_target or scale or {pc})
             if snapped_midi != midi:
                 original_pitch = note.pitch
                 note.pitch = midi_to_name(snapped_midi)
                 note.pitch_midi = snapped_midi
                 note.sources.theory_fret = note.fret
                 snapped = True
-                snap_reason = "out_of_harmony_low_audio_conf"
+                snap_reason = "out_of_harmony_snap"
                 flags.append("auto_corrected")
                 stats.snapped_notes += 1
-                in_scale = True
+                pc = midi_to_pitch_class(snapped_midi)
+                in_scale = pc in scale
+                in_chord = (
+                    pc in chord.pitch_classes if chord and chord.pitch_classes else in_scale
+                )
+                harmony_ok = in_scale and in_chord
 
-        judge_conf = 0.95 if in_scale and in_chord else (0.6 if in_scale else 0.35)
+        blocking_flags = {
+            "unplayable_position",
+            "too_many_simultaneous_notes",
+            "chord_span_exceeded",
+            "temporal_violation",
+        }
+        has_blocking_flags = bool(set(flags) & blocking_flags)
+
+        judge_conf = self._judge_confidence(
+            harmony_ok=harmony_ok,
+            in_chord=in_chord,
+            snapped=snapped,
+            has_blocking_flags=has_blocking_flags,
+        )
+        overall = self._overall_confidence(
+            note.confidence,
+            judge_conf=judge_conf,
+            snapped=snapped,
+            snap_bonus=self.config.snap_confidence_bonus,
+            has_blocking_flags=has_blocking_flags,
+        )
+
         note.judge = JudgeResult(
             in_scale=in_scale,
             in_chord=in_chord,
@@ -247,24 +280,55 @@ class MusicTheoryJudge:
         note.original_pitch = original_pitch
         note.flags = list(dict.fromkeys(flags + note.flags))
         note.confidence.judge = judge_conf
-        note.confidence.overall = self._overall_confidence(note.confidence)
+        note.confidence.overall = overall
 
         if note.judge.flags:
             stats.flagged_notes += 1
 
         return note
 
+    def _judge_confidence(
+        self,
+        *,
+        harmony_ok: bool,
+        in_chord: bool,
+        snapped: bool,
+        has_blocking_flags: bool,
+    ) -> float:
+        if has_blocking_flags:
+            return 0.25
+        if not harmony_ok:
+            return 0.35
+        if snapped:
+            return 0.94 if in_chord else 0.88
+        return 0.97 if in_chord else 0.88
+
     @staticmethod
-    def _overall_confidence(confidence: NoteConfidence) -> float:
-        weights = {"audio": 0.5, "vision": 0.25, "judge": 0.25}
+    def _overall_confidence(
+        confidence: NoteConfidence,
+        *,
+        judge_conf: float,
+        snapped: bool,
+        snap_bonus: float,
+        has_blocking_flags: bool,
+    ) -> float:
+        """Blend model + theory. Snap adds trust; Songsterr penalties applied separately."""
+        weights = {"audio": 0.55, "vision": 0.15, "judge": 0.30}
         total = 0.0
         weight_sum = 0.0
         for name, weight in weights.items():
-            value = getattr(confidence, name)
-            if value > 0:
+            value = judge_conf if name == "judge" else getattr(confidence, name)
+            if name == "judge" or value > 0:
                 total += value * weight
                 weight_sum += weight
-        return total / weight_sum if weight_sum else confidence.audio
+        overall = total / weight_sum if weight_sum else confidence.audio
+
+        if snapped:
+            overall = min(1.0, overall + snap_bonus)
+        if has_blocking_flags:
+            overall = min(overall, 0.45)
+
+        return round(min(1.0, max(0.0, overall)), 4)
 
 
 def note_from_raw(
