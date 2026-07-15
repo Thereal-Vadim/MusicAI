@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # MusicAI
 
 Hybrid guitar transcription MVP: audio + computer vision + deterministic music theory judge.

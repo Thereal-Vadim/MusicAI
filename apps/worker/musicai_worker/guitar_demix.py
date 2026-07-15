@@ -18,18 +18,22 @@ DEMIX_VERSION = "casa_v2"
 
 @dataclass(frozen=True)
 class CASADemixConfig:
-    """Tunable CASA parameters — reduce 'muddy' soft-mask bleed and pitch hallucinations."""
+    """
+    CASA tuning — prefer slight bleed over phase-destroying over-separation.
 
-    pitch_confidence_threshold: float = 0.85
-    hpss_margin_harmonic: float = 4.0
-    hpss_margin_percussive: float = 3.0
+    Dirty but phase-coherent audio is easier for Basic Pitch + ACO than synthetic mud.
+    """
+
+    pitch_confidence_threshold: float = 0.65
+    hpss_margin_harmonic: float = 2.0
+    hpss_margin_percussive: float = 2.0
     hpss_n_fft: int = 1024
     hpss_win_length: int = 1024
     hpss_hop_length: int = 256
-    spatial_correlation_threshold: float = 0.90
+    spatial_correlation_threshold: float = 0.85
     spatial_frame_ms: float = 20.0
-    mask_hard_threshold: float = 0.55
-    wiener_beta: float = 2.0
+    mask_hard_threshold: float = 0.25
+    wiener_beta: float = 1.0
     wiener_noise_floor: float = 1e-4
     n_fft: int = 2048
     hop_length: int = 512

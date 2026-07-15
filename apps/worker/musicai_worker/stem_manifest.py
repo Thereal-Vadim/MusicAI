@@ -70,7 +70,7 @@ def write_stems_manifest(
         items.append(
             {
                 "id": "solo_demix",
-                "label": "Solo Guitar (CASA demix)",
+                "label": "Solo Guitar (Wave-U-Net / CASA)",
                 "relative_path": _relative(work_dir, solo_demix),
             }
         )
@@ -78,7 +78,7 @@ def write_stems_manifest(
         items.append(
             {
                 "id": "rhythm_demix",
-                "label": "Rhythm Guitar (CASA demix)",
+                "label": "Rhythm Guitar (Wave-U-Net / CASA)",
                 "relative_path": _relative(work_dir, rhythm_demix),
             }
         )
@@ -96,7 +96,7 @@ def write_stems_manifest(
 
     payload = {
         "guitar_part": guitar_part,
-        "pipeline": "demucs+casa+playability",
+        "pipeline": "ensemble+wave_unet+casa_fallback+aco",
         "items": items,
     }
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

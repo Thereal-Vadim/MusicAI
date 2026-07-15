@@ -35,8 +35,8 @@ def test_demix_v2_writes_solo_and_rhythm(tmp_path: Path) -> None:
 def test_hard_gate_zeros_weak_mask() -> None:
     from musicai_worker.guitar_demix import _hard_gate
 
-    mask = np.array([0.1, 0.6, 0.9], dtype=np.float32)
-    gated = _hard_gate(mask, 0.55)
+    mask = np.array([0.1, 0.3, 0.9], dtype=np.float32)
+    gated = _hard_gate(mask, 0.25)
     assert gated[0] == 0.0
-    assert gated[1] == 0.6
+    assert gated[1] == 0.3
     assert gated[2] == 0.9

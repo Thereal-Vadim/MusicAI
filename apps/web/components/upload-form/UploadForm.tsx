@@ -120,11 +120,11 @@ export function UploadForm() {
           >
             <option value="combined">Все гитары (Demucs stem)</option>
             <option value="solo">Соло-гитара</option>
-            <option value="rhythm">Ритм-гитара (Ensemble → CASA demix)</option>
+            <option value="rhythm">Ритм-гитара (Wave-U-Net → CASA fallback)</option>
           </select>
           <p className="muted" style={{ marginTop: "0.35rem", fontSize: "0.875rem" }}>
-            Coarse: RoFormer (vocals) → Demucs (bass/drums/guitar) или fallback Demucs.
-            Demix: Wave-U-Net → CASA. Настройка в pipeline.yaml.
+            Слой 2: Wave-U-Net (solo/rhythm) при наличии WAVE_UNET_WEIGHTS, иначе CASA.
+            Требует <code>WAVE_UNET_WEIGHTS</code> и <code>WAVE_UNET_DEVICE=mps</code> в .env.
           </p>
         </div>
 

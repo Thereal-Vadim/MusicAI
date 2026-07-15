@@ -13,7 +13,7 @@ coarse_separation:
     - demucs/htdemucs_6s
 
 guitar_demix:
-  primary: wave-unet/guitar-demix
+  primary: wave-unet/guitar-demix   # neural solo/rhythm (CASA fallback only)
   fallbacks:
     - casa/v1
 
