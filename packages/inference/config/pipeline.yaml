@@ -9,16 +9,21 @@ coarse_separation:
   fallbacks:
     - demucs/htdemucs_6s
 
-# Guitar stem cleanup (late reverb / delay) before demix + Basic Pitch
-dereverb:
+guitar_demix:
+  primary: wave-unet/guitar-demix
+  fallbacks: []
+
+# DI cleanup (spectral dereverb + hard noise gate) after demix, before Basic Pitch
+audio_cleanup:
   enabled: true
   primary: spectral/dereverb
   fallbacks: []
 
-guitar_demix:
-  primary: hpss/guitar-demix
-  fallbacks:
-    - wave-unet/guitar-demix
+# Guitar timbre classification (AST AudioSet) after cleanup
+timbre_classify:
+  enabled: true
+  primary: audio-classifier/ast-audioset
+  fallbacks: []
 
 fingering:
   optimizer: aco

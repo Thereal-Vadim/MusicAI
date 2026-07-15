@@ -183,54 +183,6 @@ def _rhythm_emphasis(
     return _normalize(_rhythm_signal(y, sr, stereo, cfg))
 
 
-def demix_guitar_stems(
-    source: Path,
-    output_dir: Path,
-    *,
-    mix_path: Path | None = None,
-) -> tuple[Path, Path, dict[str, float]]:
-    """
-    Split a mono guitar stem into solo + rhythm WAVs using HPSS/stereo soft masks.
-
-    Uses Wiener-style energy ratios so solo + rhythm stay phase-aligned with the input.
-    Stereo mix_path strongly improves rhythm/solo separation on panned rock/metal mixes.
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-    standard_dir = output_dir / "standard"
-    standard_dir.mkdir(parents=True, exist_ok=True)
-    solo_path = standard_dir / "solo.wav"
-    rhythm_path = standard_dir / "rhythm.wav"
-
-    log.info("Demix guitar stems from %s mix=%s", source.name, mix_path)
-    y, sr = _load_mono(source)
-    stereo = _load_stereo_if_available(mix_path, sr)
-
-    solo_sig = _solo_signal(y, sr, stereo)
-    rhythm_sig = _rhythm_signal(y, sr, stereo)
-
-    solo_env = _smooth_envelope(np.abs(solo_sig), sr, window_ms=35.0)
-    rhythm_env = _smooth_envelope(np.abs(rhythm_sig), sr, window_ms=35.0)
-    total = solo_env + rhythm_env + 1e-8
-    solo_mask = solo_env / total
-    rhythm_mask = rhythm_env / total
-
-    solo = _normalize(y * solo_mask)
-    rhythm = _normalize(y * rhythm_mask)
-
-    sf.write(str(solo_path), solo, sr)
-    sf.write(str(rhythm_path), rhythm, sr)
-
-    diagnostics = {
-        "solo_rms": float(np.sqrt(np.mean(solo**2))),
-        "rhythm_rms": float(np.sqrt(np.mean(rhythm**2))),
-        "solo_mask_mean": float(solo_mask.mean()),
-        "rhythm_mask_mean": float(rhythm_mask.mean()),
-        "stereo_used": float(stereo is not None),
-    }
-    log.info("Demix complete diagnostics=%s", diagnostics)
-    return solo_path, rhythm_path, diagnostics
-
-
 def isolate_guitar_part(
     source: Path,
     part: GuitarPart,

@@ -15,13 +15,14 @@ from musicai_worker.demix_validator import validate_guitar_demix
 from musicai_worker.fingering.aco_optimizer import ACOConfig, optimize_sequence_aco
 from musicai_worker.fingering.optimizer import assign_fingering, optimize_sequence
 from musicai_worker.fusion.scorer import FusionScorer
-from musicai_worker.guitar_isolation import GUITAR_PART_LABELS, GuitarPart, isolate_guitar_part
+from musicai_worker.guitar_isolation import GUITAR_PART_LABELS, GuitarPart
 from musicai_worker.logging_setup import get_logger, log_artifact, setup_logging, stage_timer
 from musicai_worker.stage_runners import (
     log_routing_summary,
+    run_audio_cleanup,
     run_coarse_separation,
-    run_dereverb,
     run_guitar_demix,
+    run_timbre_classify,
     select_fingering_optimizer,
 )
 from tab_schema.models import SourceMeta, TabDocument, TabMeasure, TabMeta, TabTrack
@@ -36,9 +37,10 @@ PIPELINE_STAGES = [
     "queued",
     "ingest",
     "separate",
-    "dereverb",
     "guitar_demix",
     "demix_validate",
+    "audio_cleanup",
+    "timbre_classify",
     "transcribe",
     "vision",
     "fusion",
@@ -47,6 +49,17 @@ PIPELINE_STAGES = [
     "done",
     "failed",
 ]
+
+DEFAULT_TIMBRE_TYPE = "Electric Guitar (clean)"
+DEFAULT_MIDI_PROGRAM = 27
+
+
+def _track_display_name(timbre_type: str, role: str) -> str:
+    if role == "solo":
+        return f"{timbre_type} (Lead)"
+    if role == "rhythm":
+        return f"{timbre_type} (Rhythm)"
+    return timbre_type
 
 
 class TranscriptionPipeline:
@@ -152,7 +165,6 @@ class TranscriptionPipeline:
             )
             separate_result = coarse.output
             guitar_coarse = separate_result.stem_path
-            guitar_raw = guitar_coarse
             log.info(
                 "Coarse separation backend=%s method=%s stems=%s guitar=%s",
                 coarse.backend_id,
@@ -172,52 +184,11 @@ class TranscriptionPipeline:
             stage_duration_sec=separate_metrics.get("elapsed_sec"),
         )
 
-        guitar_raw = guitar_coarse
-        await report("dereverb", "Cleaning reverb / delay from guitar stem", sub_progress=0.0)
-        with stage_timer(get_logger("pipeline", job_id=job_id, stage="dereverb"), "dereverb") as dereverb_metrics:
-            dereverb_run = await run_dereverb(
-                self.registry,
-                self.routing.dereverb,
-                audio=guitar_raw,
-                output_path=work_dir / "stems" / "guitar_dereverb.wav",
-            )
-            if dereverb_run is not None:
-                guitar_raw = dereverb_run.audio
-                log.info(
-                    "Dereverb backend=%s method=%s reduction=%.3f",
-                    dereverb_run.backend_id,
-                    dereverb_run.method,
-                    dereverb_run.diagnostics.get("energy_reduction", 0.0),
-                )
-                log_artifact(
-                    log_dir,
-                    "dereverb.json",
-                    {
-                        "backend_id": dereverb_run.backend_id,
-                        "method": dereverb_run.method,
-                        "path": str(dereverb_run.audio),
-                        **dereverb_run.diagnostics,
-                    },
-                )
-            else:
-                log.info("Dereverb skipped; using raw coarse guitar stem")
-        await report(
-            "dereverb",
-            (
-                f"Dereverb {dereverb_run.method}"
-                if dereverb_run is not None
-                else "Dereverb skipped"
-            ),
-            sub_progress=1.0,
-            stage_duration_sec=dereverb_metrics.get("elapsed_sec"),
-        )
-
         demix_run = None
         validation_report = None
-        stem_path = guitar_raw
+        cleanup_run = None
+        stem_path = guitar_coarse
         isolation_method = separate_result.isolation_method or "coarse_multi"
-        if dereverb_run is not None:
-            isolation_method = f"{isolation_method}+{dereverb_run.backend_id}"
 
         if guitar_part != "combined":
             await report("guitar_demix", "Guitar de-mix (solo / rhythm)", sub_progress=0.0)
@@ -227,7 +198,7 @@ class TranscriptionPipeline:
                 demix_run = await run_guitar_demix(
                     self.registry,
                     self.routing.guitar_demix,
-                    guitar_stem=guitar_raw,
+                    guitar_stem=guitar_coarse,
                     output_dir=work_dir / "stems" / "demix",
                     mix_path=audio_path,
                 )
@@ -258,39 +229,147 @@ class TranscriptionPipeline:
                     target_part=guitar_part,
                 )
 
-                if validation_report.passed:
-                    stem_path = demix_run.solo if guitar_part == "solo" else demix_run.rhythm
-                    isolation_method = f"{coarse.backend_id}+{demix_run.backend_id}+validated"
-                else:
-                    log.warning(
-                        "Demix validation failed leakage=%.2f merged_poly=%d — HPSS fallback",
-                        validation_report.leakage_score,
-                        validation_report.merged_max_polyphony,
+                if not validation_report.passed:
+                    log_artifact(log_dir, "demix_validation.json", validation_report.to_dict())
+                    raise RuntimeError(
+                        "Wave-U-Net demix failed playability validation "
+                        f"(leakage={validation_report.leakage_score:.2f}, "
+                        f"merged_poly={validation_report.merged_max_polyphony}). "
+                        "No HPSS heuristic fallback — fix WAVE_UNET_WEIGHTS or use guitar_part=combined."
                     )
-                    stem_path = isolate_guitar_part(
-                        guitar_raw,
-                        guitar_part,
-                        work_dir / "stems" / "parts",
-                        mix_path=audio_path,
-                    )
-                    isolation_method = f"{coarse.backend_id}+{demix_run.backend_id}+fallback_hpss"
-                    from dataclasses import replace
 
-                    validation_report = replace(validation_report, used_fallback=True)
-
+                stem_path = demix_run.solo if guitar_part == "solo" else demix_run.rhythm
+                isolation_method = f"{coarse.backend_id}+{demix_run.backend_id}+validated"
                 log_artifact(log_dir, "demix_validation.json", validation_report.to_dict())
             await report(
                 "demix_validate",
-                f"Validation {'OK' if validation_report.passed else 'fallback'} · {part_label}",
+                f"Validation OK · {part_label}",
                 sub_progress=1.0,
                 stage_duration_sec=validate_metrics.get("elapsed_sec"),
             )
+
+        # Build the list of stems to clean / classify / transcribe.
+        # Dual path when demix validated: both solo + rhythm.
+        stem_jobs: list[dict[str, Any]] = []
+        if demix_run is not None and validation_report is not None and validation_report.passed:
+            stem_jobs = [
+                {"role": "solo", "source": demix_run.solo, "out_name": "cleaned_di_solo.wav"},
+                {"role": "rhythm", "source": demix_run.rhythm, "out_name": "cleaned_di_rhythm.wav"},
+            ]
         else:
-            stem_path = guitar_raw
+            role = guitar_part if guitar_part in ("solo", "rhythm", "combined") else "combined"
+            stem_jobs = [
+                {"role": role, "source": stem_path, "out_name": "cleaned_di_guitar.wav"},
+            ]
+
+        await report("audio_cleanup", "DI cleanup: dereverb + noise gate", sub_progress=0.0)
+        cleanup_runs: dict[str, Any] = {}
+        with stage_timer(
+            get_logger("pipeline", job_id=job_id, stage="audio_cleanup"), "audio_cleanup"
+        ) as cleanup_metrics:
+            for job in stem_jobs:
+                cleanup_run = await run_audio_cleanup(
+                    self.registry,
+                    self.routing.audio_cleanup,
+                    audio=job["source"],
+                    output_path=work_dir / "stems" / job["out_name"],
+                )
+                cleaned = cleanup_run.audio if cleanup_run is not None else job["source"]
+                job["cleaned"] = cleaned
+                if cleanup_run is not None:
+                    cleanup_runs[job["role"]] = cleanup_run
+                    log.info(
+                        "Audio cleanup role=%s backend=%s method=%s",
+                        job["role"],
+                        cleanup_run.backend_id,
+                        cleanup_run.method,
+                    )
+            if cleanup_runs:
+                isolation_method = f"{isolation_method}+{next(iter(cleanup_runs.values())).backend_id}"
+                log_artifact(
+                    log_dir,
+                    "audio_cleanup.json",
+                    {
+                        role: {
+                            "backend_id": run.backend_id,
+                            "method": run.method,
+                            "path": str(run.audio),
+                            **run.diagnostics,
+                        }
+                        for role, run in cleanup_runs.items()
+                    },
+                )
+            else:
+                log.info("Audio cleanup skipped; using demix/coarse stems as-is")
+                for job in stem_jobs:
+                    job["cleaned"] = job["source"]
+        primary_cleanup = cleanup_runs.get(guitar_part) or next(iter(cleanup_runs.values()), None)
+        stem_path = next(
+            (j["cleaned"] for j in stem_jobs if j["role"] == guitar_part),
+            stem_jobs[0]["cleaned"],
+        )
+        await report(
+            "audio_cleanup",
+            (
+                f"DI cleanup {len(cleanup_runs)} stem(s)"
+                if cleanup_runs
+                else "Audio cleanup skipped"
+            ),
+            sub_progress=1.0,
+            stage_duration_sec=cleanup_metrics.get("elapsed_sec"),
+        )
+
+        await report("timbre_classify", "Classifying guitar timbre (AST)", sub_progress=0.0)
+        with stage_timer(
+            get_logger("pipeline", job_id=job_id, stage="timbre_classify"), "timbre_classify"
+        ) as classify_metrics:
+            for job in stem_jobs:
+                timbre = await run_timbre_classify(
+                    self.registry,
+                    self.routing.timbre_classify,
+                    audio=job["cleaned"],
+                )
+                if timbre is None:
+                    job["timbre_type"] = DEFAULT_TIMBRE_TYPE
+                    job["midi_program"] = DEFAULT_MIDI_PROGRAM
+                    job["timbre_label"] = "fallback"
+                    job["timbre_confidence"] = 0.0
+                else:
+                    job["timbre_type"] = timbre.type
+                    job["midi_program"] = timbre.midi_program
+                    job["timbre_label"] = timbre.label
+                    job["timbre_confidence"] = timbre.confidence
+                    log.info(
+                        "Timbre role=%s type=%s midi=%d label=%s conf=%.3f",
+                        job["role"],
+                        timbre.type,
+                        timbre.midi_program,
+                        timbre.label,
+                        timbre.confidence,
+                    )
+            log_artifact(
+                log_dir,
+                "timbre_classify.json",
+                {
+                    j["role"]: {
+                        "type": j["timbre_type"],
+                        "midi_program": j["midi_program"],
+                        "label": j["timbre_label"],
+                        "confidence": j["timbre_confidence"],
+                    }
+                    for j in stem_jobs
+                },
+            )
+        await report(
+            "timbre_classify",
+            ", ".join(f"{j['role']}={j['timbre_type']}" for j in stem_jobs),
+            sub_progress=1.0,
+            stage_duration_sec=classify_metrics.get("elapsed_sec"),
+        )
 
         log.info(
-            "Transcription stem=%s method=%s part=%s",
-            stem_path,
+            "Transcription stems=%s method=%s part=%s",
+            [(j["role"], str(j["cleaned"])) for j in stem_jobs],
             isolation_method,
             guitar_part,
         )
@@ -303,6 +382,7 @@ class TranscriptionPipeline:
                 "transcription_stem": str(stem_path),
                 "isolation_method": isolation_method,
                 "demix_validation": validation_report.to_dict() if validation_report else None,
+                "track_roles": [j["role"] for j in stem_jobs],
             },
         )
         from musicai_worker.stem_manifest import write_stems_manifest
@@ -316,7 +396,7 @@ class TranscriptionPipeline:
             coarse_stems=separate_result.coarse_stems,
             solo_demix=demix_run.solo if demix_run else None,
             rhythm_demix=demix_run.rhythm if demix_run else None,
-            dereverb_stem=dereverb_run.audio if dereverb_run else None,
+            dereverb_stem=primary_cleanup.audio if primary_cleanup else None,
         )
 
         await report("transcribe", "Running Basic Pitch transcription", sub_progress=0.0)
@@ -325,34 +405,49 @@ class TranscriptionPipeline:
             bpm_adapter = self.registry.get("librosa/beat")
             log.info("BasicPitch adapter=%s", basic_pitch.describe())
             bpm_result = await bpm_adapter.predict(BpmInput(audio=audio_path))
-            log.info("BPM=%.2f beats=%d model=%s", bpm_result.bpm, len(bpm_result.beat_times_sec), bpm_result.model_id)
-            transcribe_result = await basic_pitch.predict(TranscribeInput(audio=stem_path))
             log.info(
-                "Transcribed raw_notes=%d model=%s",
-                len(transcribe_result.notes),
-                transcribe_result.model_id,
-            )
-            log_artifact(
-                log_dir,
-                "transcribe_notes.json",
-                [n.model_dump() for n in transcribe_result.notes[:200]],
+                "BPM=%.2f beats=%d model=%s",
+                bpm_result.bpm,
+                len(bpm_result.beat_times_sec),
+                bpm_result.model_id,
             )
 
-            raw_tuples = self.fusion.raw_to_tab_notes(transcribe_result.notes)
-            tab_notes = assign_fingering(raw_tuples)
-            if select_fingering_optimizer(self.routing) == "aco":
+            use_aco = select_fingering_optimizer(self.routing) == "aco"
+            aco_cfg = None
+            if use_aco:
                 from dataclasses import asdict
 
                 aco_cfg = ACOConfig(**asdict(self.routing.fingering.aco))
-                tab_notes = optimize_sequence_aco(tab_notes, aco_cfg)
-                log.info("Fingering optimizer=aco ants=%d iterations=%d", aco_cfg.n_ants, aco_cfg.n_iterations)
-            else:
-                tab_notes = optimize_sequence(tab_notes)
-                log.info("Fingering optimizer=dp")
-            log.info("After fingering notes=%d", len(tab_notes))
+
+            for job in stem_jobs:
+                transcribe_result = await basic_pitch.predict(TranscribeInput(audio=job["cleaned"]))
+                log.info(
+                    "Transcribed role=%s raw_notes=%d model=%s",
+                    job["role"],
+                    len(transcribe_result.notes),
+                    transcribe_result.model_id,
+                )
+                raw_tuples = self.fusion.raw_to_tab_notes(transcribe_result.notes)
+                tab_notes = assign_fingering(raw_tuples)
+                if use_aco and aco_cfg is not None:
+                    tab_notes = optimize_sequence_aco(tab_notes, aco_cfg)
+                else:
+                    tab_notes = optimize_sequence(tab_notes)
+                job["tab_notes"] = tab_notes
+                log.info("After fingering role=%s notes=%d", job["role"], len(tab_notes))
+
+            log_artifact(
+                log_dir,
+                "transcribe_notes.json",
+                {
+                    j["role"]: [n.model_dump() for n in j["tab_notes"][:100]]
+                    for j in stem_jobs
+                },
+            )
+        total_notes = sum(len(j["tab_notes"]) for j in stem_jobs)
         await report(
             "transcribe",
-            f"Transcribed {len(tab_notes)} notes @ {bpm_result.bpm:.0f} BPM",
+            f"Transcribed {total_notes} notes across {len(stem_jobs)} track(s) @ {bpm_result.bpm:.0f} BPM",
             sub_progress=1.0,
             stage_duration_sec=transcribe_metrics.get("elapsed_sec"),
         )
@@ -384,13 +479,18 @@ class TranscriptionPipeline:
 
         await report("fusion", "Merging audio and vision signals", sub_progress=0.0)
         with stage_timer(get_logger("pipeline", job_id=job_id, stage="fusion"), "fusion") as fusion_metrics:
-            fused_notes = self.fusion.fuse_notes(
-                tab_notes,
-                vision_result.frames,
-                audio_only=vision_result.fallback_audio_only,
-            )
-            conflict_count = sum(1 for n in fused_notes if "audio_vision_mismatch" in n.flags)
-            log.info("Fusion notes=%d conflicts=%d", len(fused_notes), conflict_count)
+            conflict_count = 0
+            for job in stem_jobs:
+                # Apply vision fusion to lead/solo (or the only track); rhythm stays audio-only.
+                apply_vision = job["role"] in ("solo", "combined") or len(stem_jobs) == 1
+                fused_notes = self.fusion.fuse_notes(
+                    job["tab_notes"],
+                    vision_result.frames if apply_vision else [],
+                    audio_only=vision_result.fallback_audio_only or not apply_vision,
+                )
+                job["fused_notes"] = fused_notes
+                conflict_count += sum(1 for n in fused_notes if "audio_vision_mismatch" in n.flags)
+            log.info("Fusion tracks=%d conflicts=%d", len(stem_jobs), conflict_count)
         await report(
             "fusion",
             f"Fusion complete, {conflict_count} conflicts",
@@ -400,35 +500,64 @@ class TranscriptionPipeline:
 
         await report("judge", "Running music theory validation", sub_progress=0.0)
         with stage_timer(get_logger("pipeline", job_id=job_id, stage="judge"), "judge") as judge_metrics:
-            judged = self.judge.judge(fused_notes, bpm=bpm_result.bpm)
+            primary_judged = None
+            for job in stem_jobs:
+                judged = self.judge.judge(job["fused_notes"], bpm=bpm_result.bpm)
+                job["judged"] = judged
+            # Prefer solo/lead as the document-level key/meta source.
+            for preferred in ("solo", "combined", guitar_part, stem_jobs[0]["role"]):
+                match = next((j for j in stem_jobs if j["role"] == preferred), None)
+                if match is not None:
+                    primary_judged = match["judged"]
+                    break
+            if primary_judged is None:
+                primary_judged = stem_jobs[0]["judged"]
             judge_report_path = work_dir / "judge_report.json"
-            judge_report_path.write_text(json.dumps(judged.to_report(), indent=2))
+            judge_report_path.write_text(
+                json.dumps(
+                    {
+                        j["role"]: j["judged"].to_report()
+                        for j in stem_jobs
+                    },
+                    indent=2,
+                )
+            )
             log.info(
-                "Judge key=%s %s snapped=%d flagged=%d chromatic=%d",
-                judged.key.root,
-                judged.key.mode,
-                judged.stats.snapped_notes,
-                judged.stats.flagged_notes,
-                judged.stats.chromatic_notes,
+                "Judge key=%s %s tracks=%d",
+                primary_judged.key.root,
+                primary_judged.key.mode,
+                len(stem_jobs),
             )
         await report(
             "judge",
-            f"Judge: {judged.key.root} {judged.key.mode}, snapped={judged.stats.snapped_notes}",
+            f"Judge: {primary_judged.key.root} {primary_judged.key.mode}",
             sub_progress=1.0,
             stage_duration_sec=judge_metrics.get("elapsed_sec"),
         )
 
         await report("draft", "Building TabDocument", sub_progress=0.0)
+        track_specs = [
+            {
+                "role": j["role"],
+                "name": _track_display_name(j["timbre_type"], j["role"]),
+                "midi_program": j["midi_program"],
+                "notes": j["judged"].notes,
+                "chords": j["judged"].chords if j["role"] in ("solo", "combined") else [],
+            }
+            for j in stem_jobs
+        ]
+        # Prefer Lead first in multi-track exports.
+        track_specs.sort(key=lambda t: 0 if t["role"] == "solo" else 1 if t["role"] == "rhythm" else 2)
+
         document = self._build_document(
             job_id=job_id,
             source_meta=source_meta,
             bpm=bpm_result.bpm,
-            key=judged.key.root,
-            mode=judged.key.mode,
+            key=primary_judged.key.root,
+            mode=primary_judged.key.mode,
             tuning=tuning,
-            notes=judged.notes,
-            chords=judged.chords,
-            key_confidence=judged.key.confidence,
+            track_specs=track_specs,
+            key_confidence=primary_judged.key.confidence,
             title=source.get("title"),
             artist=source.get("artist"),
             guitar_part=guitar_part,
@@ -437,14 +566,15 @@ class TranscriptionPipeline:
         draft_path = work_dir / "draft.json"
         draft_path.write_text(document.model_dump_json(indent=2))
         log.info(
-            "Draft saved path=%s measures=%d overall_confidence=%.3f",
+            "Draft saved path=%s tracks=%d measures=%d overall_confidence=%.3f",
             draft_path,
+            len(document.tracks),
             sum(len(t.measures) for t in document.tracks),
             document.meta.overall_confidence,
         )
         await report(
             "draft",
-            f"Draft saved ({sum(len(t.measures) for t in document.tracks)} measures)",
+            f"Draft saved ({len(document.tracks)} track(s), {sum(len(t.measures) for t in document.tracks)} measures)",
             sub_progress=1.0,
         )
         await report(
@@ -463,38 +593,58 @@ class TranscriptionPipeline:
         key: str,
         mode: str,
         tuning: list[str],
-        notes: list,
-        chords: list | None = None,
+        track_specs: list[dict[str, Any]],
         key_confidence: float = 0.0,
         title: str | None = None,
         artist: str | None = None,
         guitar_part: GuitarPart = "combined",
     ) -> TabDocument:
-        notes_list = list(notes)
+        tracks: list[TabTrack] = []
+        all_notes_flat: list = []
         ref_summary: dict[str, object] = {}
         profile = resolve_reference_profile(title, artist)
-        if profile:
-            notes_list, ref_summary = apply_reference_scoring(notes_list, profile)
-
         ms_per_measure = (60_000 / bpm) * 4 if bpm > 0 else 2000.0
-        measures_map: dict[int, TabMeasure] = {}
-        chord_by_measure = {c.measure_index: c.symbol for c in (chords or [])}
+        primary_role = "solo" if any(s.get("role") == "solo" for s in track_specs) else (
+            "combined" if any(s.get("role") == "combined" for s in track_specs) else guitar_part
+        )
 
-        for note in notes_list:
-            idx = int(note.start_ms // ms_per_measure)
-            if idx not in measures_map:
-                measure_confidence = note.confidence.overall
-                measures_map[idx] = TabMeasure(
-                    index=idx,
-                    start_ms=idx * ms_per_measure,
-                    confidence=measure_confidence,
-                    chord=chord_by_measure.get(idx),
+        for spec in track_specs:
+            notes_list = list(spec.get("notes") or [])
+            if profile and spec.get("role") == primary_role:
+                notes_list, ref_summary = apply_reference_scoring(notes_list, profile)
+
+            measures_map: dict[int, TabMeasure] = {}
+            chords = spec.get("chords") or []
+            chord_by_measure = {c.measure_index: c.symbol for c in chords}
+
+            for note in notes_list:
+                idx = int(note.start_ms // ms_per_measure)
+                if idx not in measures_map:
+                    measures_map[idx] = TabMeasure(
+                        index=idx,
+                        start_ms=idx * ms_per_measure,
+                        confidence=note.confidence.overall,
+                        chord=chord_by_measure.get(idx),
+                    )
+                measures_map[idx].notes.append(note)
+
+            role = spec.get("role")
+            tracks.append(
+                TabTrack(
+                    name=spec.get("name") or GUITAR_PART_LABELS.get(guitar_part, "Guitar"),
+                    midi_program=spec.get("midi_program"),
+                    role=role if role in ("solo", "rhythm", "combined") else None,
+                    measures=[measures_map[i] for i in sorted(measures_map.keys())],
                 )
-            measures_map[idx].notes.append(note)
+            )
+            all_notes_flat.extend(notes_list)
 
-        measures = [measures_map[i] for i in sorted(measures_map.keys())]
-        overall = sum(n.confidence.overall for n in notes_list) / len(notes_list) if notes_list else 0.0
-        quality = compute_quality_metrics(notes_list, key_confidence=key_confidence)
+        overall = (
+            sum(n.confidence.overall for n in all_notes_flat) / len(all_notes_flat)
+            if all_notes_flat
+            else 0.0
+        )
+        quality = compute_quality_metrics(all_notes_flat, key_confidence=key_confidence)
         if ref_summary:
             quality = merge_reference_into_quality(quality, ref_summary)
 
@@ -512,7 +662,7 @@ class TranscriptionPipeline:
                 overall_confidence=overall,
                 quality=quality,
             ),
-            tracks=[TabTrack(name=GUITAR_PART_LABELS.get(guitar_part, "Guitar"), measures=measures)],
+            tracks=tracks,
         )
 
     @staticmethod

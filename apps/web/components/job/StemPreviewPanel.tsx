@@ -37,9 +37,10 @@ export function useJobStems(jobId: string, poll = false) {
               } else if (
                 job.stage === "ingest" ||
                 job.stage === "separate" ||
-                job.stage === "dereverb" ||
                 job.stage === "guitar_demix" ||
-                job.stage === "demix_validate"
+                job.stage === "demix_validate" ||
+                job.stage === "audio_cleanup" ||
+                job.stage === "timbre_classify"
               ) {
                 setError(null);
               } else {

@@ -80,6 +80,30 @@ def spectral_dereverb(
     return np.clip(cleaned, -1.0, 1.0).astype(np.float32)
 
 
+def apply_noise_gate(audio: np.ndarray, threshold: float = 0.05) -> np.ndarray:
+    """
+    Hard noise gate for DI-style transcription prep.
+
+    Zeros samples whose absolute amplitude falls below ``threshold`` relative to
+    the peak (e.g. 0.08 = 8% of peak). Removes amp hiss / distortion floor so
+    Basic Pitch sees real silence between attacks.
+    """
+    audio = np.asarray(audio, dtype=np.float32)
+    if audio.size == 0:
+        return audio
+
+    threshold = float(np.clip(threshold, 0.0, 1.0))
+    if threshold <= 0.0:
+        return audio
+
+    max_val = float(np.max(np.abs(audio)))
+    if max_val == 0.0:
+        return audio
+
+    gate_mask = np.abs(audio / max_val) > threshold
+    return (audio * gate_mask).astype(np.float32)
+
+
 def dereverb_file(
     input_path: Path,
     output_path: Path,
@@ -88,9 +112,10 @@ def dereverb_file(
     decay_ms: float = 80.0,
     floor: float = 0.12,
     transient_mix: float = 0.18,
+    gate_threshold: float = 0.08,
     sr: int = 44100,
 ) -> dict[str, float]:
-    """Load audio, apply spectral dereverb, write WAV. Returns diagnostics."""
+    """Load audio, apply spectral dereverb + noise gate, write WAV."""
     import librosa
     import soundfile as sf
 
@@ -103,23 +128,28 @@ def dereverb_file(
         floor=floor,
         transient_mix=transient_mix,
     )
+    gated = apply_noise_gate(cleaned, threshold=gate_threshold)
+    gated_frac = float(np.mean(gated == 0.0)) if gated.size else 0.0
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(output_path), cleaned, file_sr)
+    sf.write(str(output_path), gated, file_sr)
 
-    # Rough energy ratio: how much late energy was removed
-    reduction = float(np.clip(1.0 - (np.linalg.norm(cleaned) / (np.linalg.norm(y) + 1e-8)), 0.0, 1.0))
+    reduction = float(np.clip(1.0 - (np.linalg.norm(gated) / (np.linalg.norm(y) + 1e-8)), 0.0, 1.0))
     log.info(
-        "Dereverb wrote %s strength=%.2f energy_reduction=%.3f",
+        "DI cleanup wrote %s strength=%.2f gate=%.2f energy_reduction=%.3f gated_frac=%.3f",
         output_path.name,
         strength,
+        gate_threshold,
         reduction,
+        gated_frac,
     )
     return {
         "strength": float(strength),
         "decay_ms": float(decay_ms),
         "floor": float(floor),
         "transient_mix": float(transient_mix),
+        "gate_threshold": float(gate_threshold),
+        "gated_sample_fraction": gated_frac,
         "energy_reduction": reduction,
-        "duration_sec": float(len(cleaned) / file_sr),
+        "duration_sec": float(len(gated) / file_sr),
     }

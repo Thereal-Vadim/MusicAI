@@ -90,6 +90,8 @@ export interface TabDocument {
   tracks: Array<{
     instrument: "guitar";
     name?: string | null;
+    midi_program?: number | null;
+    role?: "solo" | "rhythm" | "combined" | null;
     measures: TabMeasure[];
   }>;
 }
@@ -138,9 +140,10 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:800
 export const PIPELINE_STAGES = [
   "ingest",
   "separate",
-  "dereverb",
   "guitar_demix",
   "demix_validate",
+  "audio_cleanup",
+  "timbre_classify",
   "transcribe",
   "vision",
   "fusion",
@@ -152,13 +155,14 @@ export const PIPELINE_STAGES = [
 export const STAGE_TARGET_PCT: Record<string, number> = {
   ingest: 8,
   separate: 14,
-  dereverb: 18,
-  guitar_demix: 22,
-  demix_validate: 24,
-  transcribe: 44,
-  vision: 62,
-  fusion: 72,
-  judge: 82,
+  guitar_demix: 20,
+  demix_validate: 22,
+  audio_cleanup: 26,
+  timbre_classify: 30,
+  transcribe: 50,
+  vision: 64,
+  fusion: 74,
+  judge: 84,
   draft: 95,
   done: 100,
 };

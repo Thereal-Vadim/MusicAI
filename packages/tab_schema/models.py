@@ -105,6 +105,8 @@ class TabMeasure(BaseModel):
 class TabTrack(BaseModel):
     instrument: Literal["guitar"] = "guitar"
     name: str | None = None
+    midi_program: int | None = None
+    role: Literal["solo", "rhythm", "combined"] | None = None
     measures: list[TabMeasure] = Field(default_factory=list)
 
 

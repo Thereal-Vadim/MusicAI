@@ -9,11 +9,132 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
+.tab-sheet-body {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+}
+
 .tab-sheet-scroll {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   max-height: min(72vh, 900px);
   overflow: auto;
   background: #ffffff;
+}
+
+.track-selector {
+  flex: 0 0 280px;
+  max-width: 320px;
+  max-height: min(72vh, 900px);
+  overflow: auto;
+  border-right: 1px solid #dee2e6;
+  background: #fff;
+}
+
+.track-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.75rem;
+  border-bottom: 1px solid #e9ecef;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.track-selector-row:hover {
+  background: #f8f9fa;
+}
+
+.track-selector-row.is-active {
+  background: #ebfbee;
+}
+
+.track-selector-row.is-muted .track-selector-name {
+  color: #868e96;
+}
+
+.track-selector-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.track-selector-dot.is-on {
+  background: #2f9e44;
+}
+
+.track-selector-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.track-selector-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #212529;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-selector-row.is-active .track-selector-name {
+  color: #2f9e44;
+}
+
+.track-selector-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+
+.track-selector-volume {
+  width: 56px;
+  accent-color: #2f9e44;
+}
+
+.track-selector-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.track-selector-btn:hover {
+  background: #e9ecef;
+}
+
+.track-selector-btn.is-on {
+  background: #d3f9d8;
+}
+
+.track-selector-btn.is-on.mute {
+  background: #ffe3e3;
+}
+
+@media (max-width: 800px) {
+  .tab-sheet-body {
+    flex-direction: column;
+  }
+
+  .track-selector {
+    flex: none;
+    max-width: none;
+    max-height: 180px;
+    border-right: none;
+    border-bottom: 1px solid #dee2e6;
+  }
 }
 
 .tab-sheet-canvas {

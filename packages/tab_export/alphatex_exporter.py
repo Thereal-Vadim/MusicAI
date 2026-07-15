@@ -227,6 +227,8 @@ def document_to_alphatex(document: TabDocument) -> str:
     for track in document.tracks:
         track_name = _escape_tex(track.name or "Guitar")
         lines.append(f'\\track "{track_name}"')
+        if track.midi_program is not None:
+            lines.append(f"\\instrument {int(track.midi_program)}")
         lines.append("\\staff { tabs }")
         for measure in track.measures:
             lines.extend(

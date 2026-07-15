@@ -1,4 +1,4 @@
-"""Spectral dereverberation adapter (guitar stem cleanup before transcription)."""
+"""Spectral dereverberation + noise gate adapter (DI cleanup before transcription)."""
 
 from __future__ import annotations
 
@@ -16,10 +16,9 @@ log = logging.getLogger("musicai.spectral_dereverb")
 
 class SpectralDereverbAdapter(BaseModelAdapter):
     """
-    Late-reverb / delay tail suppression via STFT Wiener gain + transient remix.
+    Late-reverb suppression via STFT Wiener gain, then a hard noise gate.
 
-    Demucs 4.x does not ship a Denoiser; this is the MVP stand-in that sharpens
-    note attacks for Basic Pitch without new model weights.
+    Gate zeros the distortion floor so Basic Pitch sees silence between attacks.
     """
 
     def __init__(
@@ -29,6 +28,7 @@ class SpectralDereverbAdapter(BaseModelAdapter):
         decay_ms: float = 80.0,
         floor: float = 0.12,
         transient_mix: float = 0.18,
+        gate_threshold: float = 0.08,
     ) -> None:
         self.model_id = model_id
         self.runtime = "local"
@@ -36,6 +36,7 @@ class SpectralDereverbAdapter(BaseModelAdapter):
         self.decay_ms = decay_ms
         self.floor = floor
         self.transient_mix = transient_mix
+        self.gate_threshold = gate_threshold
 
     def healthcheck(self) -> bool:
         try:
@@ -63,15 +64,16 @@ class SpectralDereverbAdapter(BaseModelAdapter):
                 decay_ms=self.decay_ms,
                 floor=self.floor,
                 transient_mix=self.transient_mix,
+                gate_threshold=self.gate_threshold,
             )
             return DereverbOutput(
                 audio_path=dst,
                 model_id=self.model_id,
-                method="spectral_late_reverb_wiener",
+                method="spectral_wiener+noise_gate",
                 diagnostics=diagnostics,
             )
         except Exception as exc:
-            log.warning("Spectral dereverb failed (%s); copying original stem", exc)
+            log.warning("DI cleanup failed (%s); copying original stem", exc)
             dst.parent.mkdir(parents=True, exist_ok=True)
             if src.resolve() != dst.resolve():
                 shutil.copy2(src, dst)
@@ -79,7 +81,7 @@ class SpectralDereverbAdapter(BaseModelAdapter):
                 audio_path=dst,
                 model_id=f"{self.model_id}+passthrough",
                 method="passthrough",
-                diagnostics={"strength": 0.0, "energy_reduction": 0.0},
+                diagnostics={"strength": 0.0, "gate_threshold": 0.0, "energy_reduction": 0.0},
             )
 
     def describe(self) -> dict[str, object]:
@@ -88,4 +90,5 @@ class SpectralDereverbAdapter(BaseModelAdapter):
         base["strength"] = self.strength
         base["decay_ms"] = self.decay_ms
         base["transient_mix"] = self.transient_mix
+        base["gate_threshold"] = self.gate_threshold
         return base

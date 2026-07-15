@@ -1,4 +1,4 @@
-"""Spectral dereverb unit tests."""
+"""Spectral dereverb + noise gate unit tests."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import pytest
 import soundfile as sf
 
 from inference.adapters.spectral_dereverb_adapter import SpectralDereverbAdapter
-from inference.audio.dereverb import spectral_dereverb
+from inference.audio.dereverb import apply_noise_gate, spectral_dereverb
 from inference.pipeline_routing import load_pipeline_routing
 from inference.registry import ModelRegistry
 from inference.schemas.model_io import DereverbInput
@@ -34,7 +34,6 @@ def test_spectral_dereverb_reduces_tail_energy():
     wet = _synthetic_reverb(dry, sr)
     cleaned = spectral_dereverb(wet, sr, strength=0.8, transient_mix=0.1)
 
-    # Compare late-window energy (last 300 ms)
     late = slice(int(1.2 * sr), None)
     assert float(np.linalg.norm(cleaned[late])) < float(np.linalg.norm(wet[late]))
 
@@ -46,6 +45,17 @@ def test_spectral_dereverb_passthrough_zero_strength():
     assert np.allclose(out, y)
 
 
+def test_noise_gate_zeros_quiet_floor_keeps_peaks():
+    audio = np.array([0.0, 0.01, 0.02, 1.0, -0.9, 0.03], dtype=np.float32)
+    gated = apply_noise_gate(audio, threshold=0.08)
+    assert gated[0] == 0.0
+    assert gated[1] == 0.0
+    assert gated[2] == 0.0
+    assert gated[3] == pytest.approx(1.0)
+    assert gated[4] == pytest.approx(-0.9)
+    assert gated[5] == 0.0
+
+
 @pytest.mark.asyncio
 async def test_adapter_writes_wav(tmp_path: Path):
     sr = 22050
@@ -54,19 +64,21 @@ async def test_adapter_writes_wav(tmp_path: Path):
     dst = tmp_path / "out.wav"
     sf.write(src, y, sr)
 
-    adapter = SpectralDereverbAdapter(strength=0.5)
+    adapter = SpectralDereverbAdapter(strength=0.5, gate_threshold=0.08)
     assert adapter.healthcheck() is True
     result = await adapter.predict(DereverbInput(audio=src, output_path=dst))
 
     assert result.audio_path.exists()
-    assert result.method == "spectral_late_reverb_wiener"
+    assert result.method == "spectral_wiener+noise_gate"
     assert result.diagnostics["strength"] == pytest.approx(0.5)
+    assert result.diagnostics["gate_threshold"] == pytest.approx(0.08)
+    assert "gated_sample_fraction" in result.diagnostics
 
 
-def test_registry_and_routing_include_dereverb():
+def test_registry_and_routing_include_audio_cleanup():
     routing = load_pipeline_routing()
-    assert routing.dereverb.enabled is True
-    assert routing.dereverb.primary == "spectral/dereverb"
+    assert routing.audio_cleanup.enabled is True
+    assert routing.audio_cleanup.primary == "spectral/dereverb"
 
     registry = ModelRegistry.from_config()
     assert "spectral/dereverb" in registry.list_models()

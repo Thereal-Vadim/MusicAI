@@ -42,7 +42,8 @@ def guitar_demix_unavailable_reason(
 
     return (
         "No guitar demix backend is available. "
-        "HPSS demix should always be healthy; check models.yaml and restart the API."
+        "Set WAVE_UNET_WEIGHTS to a trained checkpoint for solo/rhythm demix, "
+        "or use guitar_part=combined."
     )
 
 

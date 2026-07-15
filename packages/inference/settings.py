@@ -14,8 +14,11 @@ class InferenceSettings(BaseSettings):
     inference_runtime: Literal["local", "cloud"] = "local"
     demucs_model: str = "htdemucs_6s"
     demucs_device: str = "cpu"
-    basic_pitch_onset_threshold: float = 0.5
-    basic_pitch_frame_threshold: float = 0.3
+    basic_pitch_onset_threshold: float = 0.65
+    basic_pitch_frame_threshold: float = 0.45
+    basic_pitch_minimum_note_length_ms: float = 50.0
+    basic_pitch_minimum_frequency: float = 70.0
+    basic_pitch_maximum_frequency: float = 1200.0
     mediapipe_min_detection_confidence: float = 0.7
     mediapipe_min_tracking_confidence: float = 0.5
     mediapipe_hand_model: Path | None = None
@@ -32,12 +35,18 @@ class InferenceSettings(BaseSettings):
     wave_unet_weights: Path | None = None
     wave_unet_device: str = "cpu"
 
-    # Spectral dereverb (guitar stem cleanup)
+    # Spectral DI cleanup (dereverb + noise gate)
     dereverb_enabled: bool = True
     dereverb_strength: float = 0.65
     dereverb_decay_ms: float = 80.0
     dereverb_floor: float = 0.12
     dereverb_transient_mix: float = 0.18
+    dereverb_gate_threshold: float = 0.08
+
+    # AST guitar timbre classifier
+    audio_classifier_enabled: bool = True
+    audio_classifier_model: str = "MIT/ast-finetuned-audioset-10-10-0.4593"
+    audio_classifier_device: str = "cpu"
 
     # Fingering optimizer
     fingering_optimizer: Literal["aco", "dp"] = "dp"

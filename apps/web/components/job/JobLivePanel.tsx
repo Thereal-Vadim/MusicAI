@@ -96,7 +96,7 @@ export function JobLivePanel({ jobId, onDone, onFailed }: JobLivePanelProps) {
   const separateDone =
     isDone ||
     (job?.stages ?? []).some((s) =>
-      ["separate", "dereverb", "guitar_demix", "demix_validate"].includes(s.name) &&
+      ["separate", "guitar_demix", "demix_validate", "audio_cleanup", "timbre_classify"].includes(s.name) &&
       s.duration_sec != null
     ) ||
     ["transcribe", "vision", "fusion", "judge", "draft", "done"].includes(job?.stage ?? "");

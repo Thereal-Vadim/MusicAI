@@ -1,5 +1,7 @@
 """Expanded inference registry tests."""
 
+import pytest
+
 from inference.adapters.base import BaseModelAdapter
 from inference.registry import ModelRegistry
 from inference.settings import InferenceSettings
@@ -14,7 +16,8 @@ def test_registry_loads_models():
     assert "librosa/beat" in models
     assert "bs-roformer/guitar-4stem" in models
     assert "wave-unet/guitar-demix" in models
-    assert "hpss/guitar-demix" in models
+    assert "spectral/dereverb" in models
+    assert "hpss/guitar-demix" not in models
 
 
 def test_registry_healthcheck():
@@ -43,6 +46,8 @@ def test_runtime_config_exposes_settings():
     assert config["runtime"] == "local"
     assert config["demucs_model"] == "htdemucs_6s"
     assert config["demucs_device"] == "cpu"
+    assert config["basic_pitch_onset_threshold"] == pytest.approx(0.65)
+    assert config["dereverb_gate_threshold"] == pytest.approx(0.08)
 
 
 def test_describe_all_includes_health():

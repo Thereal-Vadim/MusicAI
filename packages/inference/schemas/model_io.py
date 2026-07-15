@@ -108,5 +108,18 @@ class DereverbOutput(BaseModel):
     diagnostics: dict[str, float] = Field(default_factory=dict)
 
 
+class TimbreClassifyInput(BaseModel):
+    audio: Path
+
+
+class TimbreClassifyOutput(BaseModel):
+    type: str
+    midi_program: int
+    label: str
+    confidence: float = 0.0
+    model_id: str
+    top_labels: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class ModelInput(BaseModel):
     payload: Any

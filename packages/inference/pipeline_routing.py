@@ -79,9 +79,24 @@ class FingeringRouting:
 
 
 @dataclass(frozen=True)
-class DereverbRouting:
+class AudioCleanupRouting:
     enabled: bool = True
     primary: str = "spectral/dereverb"
+    fallbacks: tuple[str, ...] = ()
+
+    @property
+    def chain(self) -> tuple[str, ...]:
+        return (self.primary, *self.fallbacks)
+
+
+# Backwards-compatible alias for imports that still say DereverbRouting.
+DereverbRouting = AudioCleanupRouting
+
+
+@dataclass(frozen=True)
+class TimbreClassifyRouting:
+    enabled: bool = True
+    primary: str = "audio-classifier/ast-audioset"
     fallbacks: tuple[str, ...] = ()
 
     @property
@@ -94,7 +109,13 @@ class PipelineRouting:
     coarse_separation: CoarseSeparationRouting
     guitar_demix: StageRouting
     fingering: FingeringRouting
-    dereverb: DereverbRouting = field(default_factory=DereverbRouting)
+    audio_cleanup: AudioCleanupRouting = field(default_factory=AudioCleanupRouting)
+    timbre_classify: TimbreClassifyRouting = field(default_factory=TimbreClassifyRouting)
+
+    @property
+    def dereverb(self) -> AudioCleanupRouting:
+        """Alias used by older call sites during rename."""
+        return self.audio_cleanup
 
     def to_dict(self) -> dict[str, Any]:
         coarse_payload: dict[str, Any] = {
@@ -109,10 +130,15 @@ class PipelineRouting:
 
         return {
             "coarse_separation": coarse_payload,
-            "dereverb": {
-                "enabled": self.dereverb.enabled,
-                "primary": self.dereverb.primary,
-                "fallbacks": list(self.dereverb.fallbacks),
+            "audio_cleanup": {
+                "enabled": self.audio_cleanup.enabled,
+                "primary": self.audio_cleanup.primary,
+                "fallbacks": list(self.audio_cleanup.fallbacks),
+            },
+            "timbre_classify": {
+                "enabled": self.timbre_classify.enabled,
+                "primary": self.timbre_classify.primary,
+                "fallbacks": list(self.timbre_classify.fallbacks),
             },
             "guitar_demix": {
                 "primary": self.guitar_demix.primary,
@@ -153,16 +179,21 @@ def load_pipeline_routing(
     coarse = raw.get("coarse_separation", {})
     demix = raw.get("guitar_demix", {})
     finger = raw.get("fingering", {})
-    dereverb_raw = raw.get("dereverb", {})
+    cleanup_raw = raw.get("audio_cleanup") or raw.get("dereverb") or {}
+    timbre_raw = raw.get("timbre_classify") or {}
     aco_raw = finger.get("aco", {})
 
     optimizer = finger.get("optimizer", cfg.fingering_optimizer)
     if optimizer not in ("aco", "dp"):
         optimizer = "dp"
 
-    enabled = dereverb_raw.get("enabled", cfg.dereverb_enabled)
+    enabled = cleanup_raw.get("enabled", cfg.dereverb_enabled)
     if isinstance(enabled, str):
         enabled = enabled.strip().lower() in {"1", "true", "yes", "on"}
+
+    timbre_enabled = timbre_raw.get("enabled", cfg.audio_classifier_enabled)
+    if isinstance(timbre_enabled, str):
+        timbre_enabled = timbre_enabled.strip().lower() in {"1", "true", "yes", "on"}
 
     return PipelineRouting(
         coarse_separation=CoarseSeparationRouting(
@@ -188,9 +219,14 @@ def load_pipeline_routing(
                 string_skip_penalty=float(aco_raw.get("string_skip_penalty", 3.5)),
             ),
         ),
-        dereverb=DereverbRouting(
+        audio_cleanup=AudioCleanupRouting(
             enabled=bool(enabled),
-            primary=str(dereverb_raw.get("primary", "spectral/dereverb")),
-            fallbacks=tuple(dereverb_raw.get("fallbacks", [])),
+            primary=str(cleanup_raw.get("primary", "spectral/dereverb")),
+            fallbacks=tuple(cleanup_raw.get("fallbacks", [])),
+        ),
+        timbre_classify=TimbreClassifyRouting(
+            enabled=bool(timbre_enabled),
+            primary=str(timbre_raw.get("primary", "audio-classifier/ast-audioset")),
+            fallbacks=tuple(timbre_raw.get("fallbacks", [])),
         ),
     )

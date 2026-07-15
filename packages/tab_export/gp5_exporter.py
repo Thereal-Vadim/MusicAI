@@ -7,7 +7,7 @@ import io
 from collections import defaultdict
 from pathlib import Path
 
-from tab_schema.models import TabDocument, TabMeasure, TabNote
+from tab_schema.models import TabDocument, TabMeasure, TabNote, TabTrack
 
 TEMPLATE_PATH = Path(__file__).parent / "assets" / "template.gp5"
 TEMPLATE_URL = (
@@ -17,6 +17,9 @@ TICKS_PER_QUARTER = 960
 TICKS_PER_MEASURE_4_4 = 3840
 
 _TEMPLATE: object | None = None
+
+# Default GM program when TabTrack.midi_program is unset (Overdriven Guitar).
+DEFAULT_MIDI_PROGRAM = 29
 
 
 def _load_template() -> object:
@@ -77,43 +80,86 @@ def _apply_measure(track, measure: TabMeasure, template_beat, bpm: float, header
     voice.beats = beats
 
 
-def _prepare_single_guitar_track(song, *, track_name: str, measure_count: int) -> None:
-    """Keep one guitar track and drop demo template content beyond the draft."""
-    while len(song.tracks) > 1:
-        del song.tracks[-1]
-
-    track = song.tracks[0]
-    track.name = track_name
-
+def _trim_measures(song, measure_count: int) -> None:
     measure_count = max(measure_count, 1)
-    while len(track.measures) > measure_count:
-        del track.measures[-1]
+    for track in song.tracks:
+        while len(track.measures) > measure_count:
+            del track.measures[-1]
     while len(song.measureHeaders) > measure_count:
         del song.measureHeaders[-1]
+
+
+def _prepare_guitar_tracks(
+    song,
+    *,
+    tab_tracks: list[TabTrack],
+    measure_count: int,
+):
+    """Keep N guitar tracks from the template; clone with unique MIDI channels if needed."""
+    if not tab_tracks:
+        tab_tracks = [TabTrack(name="Guitar")]
+
+    # Prefer existing template tracks (they already have distinct MIDI channels).
+    while len(song.tracks) > len(tab_tracks):
+        del song.tracks[-1]
+
+    template_beat = song.tracks[0].measures[0].voices[0].beats[0]
+    next_channel = 0
+    used_channels = {t.channel.channel for t in song.tracks}
+
+    while len(song.tracks) < len(tab_tracks):
+        clone = copy.deepcopy(song.tracks[0])
+        clone.song = song
+        # Assign a free MIDI channel pair so instruments do not collide on write/parse.
+        while next_channel in used_channels or next_channel == 9:
+            next_channel += 2
+        clone.channel.channel = next_channel
+        clone.channel.effectChannel = next_channel + 1
+        used_channels.add(next_channel)
+        next_channel += 2
+        song.tracks.append(clone)
+
+    prepared = []
+    for i, tab_track in enumerate(tab_tracks):
+        track = song.tracks[i]
+        track.name = tab_track.name or f"Guitar {i + 1}"
+        program = tab_track.midi_program if tab_track.midi_program is not None else DEFAULT_MIDI_PROGRAM
+        track.channel.instrument = int(program)
+        prepared.append(track)
+
+    _trim_measures(song, measure_count)
+    return prepared, template_beat
 
 
 def document_to_gp5_bytes(document: TabDocument) -> bytes:
     import guitarpro
 
-    song = _load_template()
+    # Deep-copy so concurrent/sequential exports do not mutate the cached template.
+    song = copy.deepcopy(_load_template())
     song.title = document.meta.title or "Untitled"
     song.artist = document.meta.artist or "MusicAI"
     song.album = document.meta.album or ""
     song.tempo = int(round(document.meta.bpm))
 
-    track_name = document.tracks[0].name if document.tracks else "Guitar"
+    tab_tracks = list(document.tracks) or [TabTrack(name="Guitar")]
     max_measure_index = max(
-        (measure.index for tab_track in document.tracks for measure in tab_track.measures),
+        (measure.index for tab_track in tab_tracks for measure in tab_track.measures),
         default=0,
     )
-    _prepare_single_guitar_track(song, track_name=track_name, measure_count=max_measure_index + 1)
+    gp_tracks, template_beat = _prepare_guitar_tracks(
+        song,
+        tab_tracks=tab_tracks,
+        measure_count=max_measure_index + 1,
+    )
 
-    track = song.tracks[0]
-    template_beat = track.measures[0].voices[0].beats[0]
-
-    for tab_track in document.tracks:
+    for tab_track, gp_track in zip(tab_tracks, gp_tracks):
+        # Fresh template beat from this track after trim (clone may have empty measures).
+        if gp_track.measures and gp_track.measures[0].voices[0].beats:
+            beat_template = gp_track.measures[0].voices[0].beats[0]
+        else:
+            beat_template = template_beat
         for measure in tab_track.measures:
-            _apply_measure(track, measure, template_beat, document.meta.bpm, measure.index)
+            _apply_measure(gp_track, measure, beat_template, document.meta.bpm, measure.index)
 
     buffer = io.BytesIO()
     guitarpro.write(song, buffer, version=(5, 1, 0))

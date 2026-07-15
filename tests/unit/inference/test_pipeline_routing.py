@@ -25,10 +25,12 @@ def test_pipeline_routing_loads_ensemble_cascade():
     assert routing.coarse_separation.ensemble.step_1 == "bs-roformer/vocals-isolation"
     assert routing.coarse_separation.ensemble.step_2 == "demucs/htdemucs_6s"
     assert routing.coarse_separation.chain == ("demucs/htdemucs_6s",)
-    assert routing.guitar_demix.primary == "hpss/guitar-demix"
-    assert routing.guitar_demix.fallbacks == ("wave-unet/guitar-demix",)
-    assert routing.dereverb.enabled is True
-    assert routing.dereverb.primary == "spectral/dereverb"
+    assert routing.guitar_demix.primary == "wave-unet/guitar-demix"
+    assert routing.guitar_demix.fallbacks == ()
+    assert routing.audio_cleanup.enabled is True
+    assert routing.audio_cleanup.primary == "spectral/dereverb"
+    assert routing.timbre_classify.enabled is True
+    assert routing.timbre_classify.primary == "audio-classifier/ast-audioset"
 
 
 def test_registry_includes_new_adapters():
@@ -37,8 +39,9 @@ def test_registry_includes_new_adapters():
     assert "bs-roformer/guitar-4stem" in models
     assert "bs-roformer/vocals-isolation" in models
     assert "wave-unet/guitar-demix" in models
-    assert "hpss/guitar-demix" in models
+    assert "hpss/guitar-demix" not in models
     assert "spectral/dereverb" in models
+    assert "audio-classifier/ast-audioset" in models
 
 
 def test_bs_roformer_unhealthy_without_checkpoint():

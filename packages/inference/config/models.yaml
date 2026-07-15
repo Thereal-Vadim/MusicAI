@@ -7,8 +7,11 @@ models:
     device: mps
   basic-pitch/v1:
     adapter: basic_pitch
-    onset_threshold: 0.5
-    frame_threshold: 0.3
+    onset_threshold: 0.65
+    frame_threshold: 0.45
+    minimum_note_length_ms: 50
+    minimum_frequency: 70
+    maximum_frequency: 1200
   mediapipe/hands:
     adapter: mediapipe
     min_detection_confidence: 0.7
@@ -29,11 +32,14 @@ models:
     adapter: wave_unet
     weights_path: null
     device: mps
-  hpss/guitar-demix:
-    adapter: hpss_demix
   spectral/dereverb:
     adapter: spectral_dereverb
     strength: 0.65
     decay_ms: 80
     floor: 0.12
     transient_mix: 0.18
+    gate_threshold: 0.08
+  audio-classifier/ast-audioset:
+    adapter: audio_classifier
+    model_name: MIT/ast-finetuned-audioset-10-10-0.4593
+    device: mps

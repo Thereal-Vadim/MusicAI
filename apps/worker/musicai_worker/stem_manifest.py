@@ -76,7 +76,7 @@ def write_stems_manifest(
         items.append(
             {
                 "id": "dereverb",
-                "label": "Guitar (dereverb)",
+                "label": "Guitar DI (cleanup)",
                 "relative_path": _relative(work_dir, dereverb_stem),
             }
         )
@@ -111,7 +111,7 @@ def write_stems_manifest(
 
     payload = {
         "guitar_part": guitar_part,
-        "pipeline": "ensemble+dereverb+hpss_demix+aco",
+        "pipeline": "ensemble+wave_unet+di_cleanup+aco",
         "items": items,
     }
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

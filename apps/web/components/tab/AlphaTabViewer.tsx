@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ALPHATAB_CDN, loadAlphaTab } from "@/lib/load-alphatab";
 import type { BenchmarkComparison } from "@/lib/benchmark-format";
+import type { AlphaTabApi, AlphaTabScoreTrack } from "./alphatab-types";
+import { TrackSelector } from "./TrackSelector";
 import "./tab-sheet.css";
 
 const CDN = ALPHATAB_CDN;
@@ -15,22 +17,16 @@ interface AlphaTabViewerProps {
   comparison?: BenchmarkComparison | null;
 }
 
-type AlphaTabApi = {
-  destroy: () => void;
-  load: (data: unknown, trackIndexes?: number[]) => boolean;
-  tex: (tex: string) => void;
-  playPause: () => void;
-  stop: () => void;
-  playbackSpeed: number;
-  playerStateChanged: { on: (cb: (args: { state: number }) => void) => void };
-  scoreLoaded: { on: (cb: () => void) => void };
-  renderStarted: { on: (cb: () => void) => void };
-  error: { on: (cb: (err: { message: string }) => void) => void };
-  timePosition: number;
-  endTime: number;
-};
-
 const PLAYER_PLAYING = 1;
+
+function normalizeTracks(raw: AlphaTabScoreTrack[] | undefined): AlphaTabScoreTrack[] {
+  if (!raw?.length) return [];
+  return raw.map((track, index) => ({
+    ...track,
+    index: typeof track.index === "number" ? track.index : index,
+    name: track.name || `Track ${index + 1}`,
+  }));
+}
 
 export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: AlphaTabViewerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -42,6 +38,11 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: 
   const [speed, setSpeed] = useState(100);
   const [positionSec, setPositionSec] = useState(0);
   const [durationSec, setDurationSec] = useState(0);
+  const [tracks, setTracks] = useState<AlphaTabScoreTrack[]>([]);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const [muted, setMuted] = useState<Record<number, boolean>>({});
+  const [solo, setSolo] = useState<Record<number, boolean>>({});
+  const [volumes, setVolumes] = useState<Record<number, number>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +52,11 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: 
       if (!containerRef.current) return;
       setLoading(true);
       setError(null);
+      setTracks([]);
+      setActiveIndex(null);
+      setMuted({});
+      setSolo({});
+      setVolumes({});
 
       try {
         const [alphaTab, gp5Buffer] = await Promise.all([
@@ -116,15 +122,27 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: 
         } satisfies Record<string, unknown>;
 
         api = new alphaTab.AlphaTabApi(containerRef.current, settings) as unknown as AlphaTabApi;
-
         apiRef.current = api;
 
         api.playerStateChanged.on((args) => {
           setPlaying(args.state === PLAYER_PLAYING);
         });
 
-        api.scoreLoaded.on(() => {
+        api.scoreLoaded.on((score) => {
           setDurationSec(Math.max(0, api?.endTime ?? 0));
+          const loadedTracks = normalizeTracks(score?.tracks ?? api?.score?.tracks);
+          setTracks(loadedTracks);
+          const volumeMap: Record<number, number> = {};
+          for (const track of loadedTracks) volumeMap[track.index] = 1;
+          setVolumes(volumeMap);
+          if (loadedTracks.length > 0) {
+            setActiveIndex(loadedTracks[0].index);
+            try {
+              api?.renderTracks([loadedTracks[0]]);
+            } catch {
+              /* older builds may only support load-time track filter */
+            }
+          }
         });
 
         api.error.on((err) => {
@@ -146,8 +164,8 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: 
 
         let loaded = false;
         if (gp5Buffer && gp5Buffer.byteLength > 100) {
-          // Only the guitar track — ignore bass/drums leftover from the GP5 template.
-          loaded = api.load(new Uint8Array(gp5Buffer), [0]);
+          // Load all tracks so TrackSelector mute/solo/volume can mix them.
+          loaded = api.load(new Uint8Array(gp5Buffer));
         }
 
         if (!loaded) {
@@ -197,12 +215,67 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: 
     setPositionSec(value);
   };
 
+  const onSelectTrack = useCallback((track: AlphaTabScoreTrack) => {
+    setActiveIndex(track.index);
+    try {
+      apiRef.current?.renderTracks([track]);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const onToggleMute = useCallback((track: AlphaTabScoreTrack) => {
+    setMuted((prev) => {
+      const nextMuted = !prev[track.index];
+      try {
+        apiRef.current?.changeTrackMute([track], nextMuted);
+      } catch {
+        /* ignore */
+      }
+      return { ...prev, [track.index]: nextMuted };
+    });
+  }, []);
+
+  const onToggleSolo = useCallback((track: AlphaTabScoreTrack) => {
+    setSolo((prev) => {
+      const nextSolo = !prev[track.index];
+      try {
+        apiRef.current?.changeTrackSolo([track], nextSolo);
+      } catch {
+        /* ignore */
+      }
+      return { ...prev, [track.index]: nextSolo };
+    });
+  }, []);
+
+  const onVolume = useCallback((track: AlphaTabScoreTrack, volume: number) => {
+    setVolumes((prev) => ({ ...prev, [track.index]: volume }));
+    try {
+      apiRef.current?.changeTrackVolume([track], volume);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   return (
     <div className="tab-sheet">
-      <div ref={scrollRef} className="tab-sheet-scroll">
-        {loading ? <p className="tab-sheet-loading">Загрузка табулатуры…</p> : null}
-        {error ? <p className="tab-sheet-error">{error}</p> : null}
-        <div ref={containerRef} className="tab-sheet-canvas" />
+      <div className="tab-sheet-body">
+        <TrackSelector
+          tracks={tracks}
+          activeIndex={activeIndex}
+          muted={muted}
+          solo={solo}
+          volumes={volumes}
+          onSelect={onSelectTrack}
+          onToggleMute={onToggleMute}
+          onToggleSolo={onToggleSolo}
+          onVolume={onVolume}
+        />
+        <div ref={scrollRef} className="tab-sheet-scroll">
+          {loading ? <p className="tab-sheet-loading">Загрузка табулатуры…</p> : null}
+          {error ? <p className="tab-sheet-error">{error}</p> : null}
+          <div ref={containerRef} className="tab-sheet-canvas" />
+        </div>
       </div>
 
       {comparison ? (
@@ -256,7 +329,7 @@ export function AlphaTabViewer({ draftId, tex, gp5Url, trackName, comparison }: 
           />
           {speed}%
         </label>
-        {trackName ? <span className="tab-sheet-meta">{trackName}</span> : null}
+        {trackName && tracks.length <= 1 ? <span className="tab-sheet-meta">{trackName}</span> : null}
       </div>
     </div>
   );

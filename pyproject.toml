@@ -30,6 +30,7 @@ ml = [
     "basic-pitch>=0.4.0",
     "demucs>=4.0.1",
     "torch>=2.2.0",
+    "transformers>=4.40.0",
     # Optional coarse separation upgrade (BS-RoFormer / ViperX via audio-separator):
     # "audio-separator>=0.24.0",
 ]

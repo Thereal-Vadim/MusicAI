@@ -8,9 +8,22 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from inference.pipeline_routing import CoarseSeparationRouting, DereverbRouting, PipelineRouting, StageRouting
+from inference.pipeline_routing import (
+    AudioCleanupRouting,
+    CoarseSeparationRouting,
+    PipelineRouting,
+    StageRouting,
+    TimbreClassifyRouting,
+)
 from inference.registry import ModelRegistry
-from inference.schemas.model_io import DereverbInput, GuitarDemixInput, SeparateInput, SeparateOutput
+from inference.schemas.model_io import (
+    DereverbInput,
+    GuitarDemixInput,
+    SeparateInput,
+    SeparateOutput,
+    TimbreClassifyInput,
+    TimbreClassifyOutput,
+)
 
 log = logging.getLogger("musicai.stage_runners")
 
@@ -24,11 +37,15 @@ class CoarseSeparationResult:
 
 
 @dataclass(frozen=True)
-class DereverbRunResult:
+class AudioCleanupRunResult:
     audio: Path
     method: str
     backend_id: str
     diagnostics: dict[str, float]
+
+
+# Backwards-compatible alias
+DereverbRunResult = AudioCleanupRunResult
 
 
 @dataclass(frozen=True)
@@ -193,16 +210,16 @@ async def run_coarse_separation(
     ) from last_error
 
 
-async def run_dereverb(
+async def run_audio_cleanup(
     registry: ModelRegistry,
-    routing: DereverbRouting,
+    routing: AudioCleanupRouting,
     *,
     audio: Path,
     output_path: Path,
-) -> DereverbRunResult | None:
-    """Clean late reverb from guitar stem. Returns None when stage is disabled."""
+) -> AudioCleanupRunResult | None:
+    """Spectral dereverb + noise gate. Returns None when stage is disabled."""
     if not routing.enabled:
-        log.info("Dereverb stage disabled; using raw guitar stem")
+        log.info("Audio cleanup stage disabled; using raw transcription stem")
         return None
 
     last_error: Exception | None = None
@@ -210,30 +227,34 @@ async def run_dereverb(
         try:
             adapter = registry.get(backend_id)
         except KeyError:
-            log.debug("Dereverb backend %s not registered, skipping", backend_id)
+            log.debug("Audio cleanup backend %s not registered, skipping", backend_id)
             continue
 
         if not adapter.healthcheck():
-            log.info("Dereverb backend %s unhealthy", backend_id)
+            log.info("Audio cleanup backend %s unhealthy", backend_id)
             continue
 
         try:
             output = await adapter.predict(
                 DereverbInput(audio=audio, output_path=output_path)
             )
-            return DereverbRunResult(
+            return AudioCleanupRunResult(
                 audio=output.audio_path,
                 method=output.method,
                 backend_id=backend_id,
                 diagnostics=output.diagnostics,
             )
         except Exception as exc:
-            log.warning("Dereverb backend %s failed: %s", backend_id, exc)
+            log.warning("Audio cleanup backend %s failed: %s", backend_id, exc)
             last_error = exc
 
     if last_error:
-        log.warning("Dereverb unavailable, continuing with raw stem: %s", last_error)
+        log.warning("Audio cleanup unavailable, continuing with raw stem: %s", last_error)
     return None
+
+
+# Backwards-compatible alias
+run_dereverb = run_audio_cleanup
 
 
 async def run_guitar_demix(
@@ -280,6 +301,58 @@ async def run_guitar_demix(
         f"Wave-U-Net demix unavailable (primary={routing.primary}). "
         "Configure WAVE_UNET_WEIGHTS in .env"
     ) from last_error
+
+
+@dataclass(frozen=True)
+class TimbreClassifyRunResult:
+    type: str
+    midi_program: int
+    label: str
+    confidence: float
+    backend_id: str
+    top_labels: list[dict[str, Any]]
+
+
+async def run_timbre_classify(
+    registry: ModelRegistry,
+    routing: TimbreClassifyRouting,
+    *,
+    audio: Path,
+) -> TimbreClassifyRunResult | None:
+    """AST guitar timbre classification. Returns None when disabled or unavailable."""
+    if not routing.enabled:
+        log.info("Timbre classify stage disabled")
+        return None
+
+    last_error: Exception | None = None
+    for backend_id in routing.chain:
+        try:
+            adapter = registry.get(backend_id)
+        except KeyError:
+            log.debug("Timbre classify backend %s not registered, skipping", backend_id)
+            continue
+
+        if not adapter.healthcheck():
+            log.info("Timbre classify backend %s unhealthy", backend_id)
+            continue
+
+        try:
+            output: TimbreClassifyOutput = await adapter.predict(TimbreClassifyInput(audio=audio))
+            return TimbreClassifyRunResult(
+                type=output.type,
+                midi_program=output.midi_program,
+                label=output.label,
+                confidence=output.confidence,
+                backend_id=backend_id,
+                top_labels=list(output.top_labels),
+            )
+        except Exception as exc:
+            log.warning("Timbre classify backend %s failed: %s", backend_id, exc)
+            last_error = exc
+
+    if last_error:
+        log.warning("Timbre classify unavailable, using Clean fallback: %s", last_error)
+    return None
 
 
 def select_fingering_optimizer(routing: PipelineRouting) -> str:

@@ -13,9 +13,9 @@ from inference.adapters.bs_roformer_adapter import BSRoFormerAdapter
 from inference.adapters.demucs_adapter import DemucsAdapter
 from inference.adapters.librosa_bpm_adapter import LibrosaBpmAdapter
 from inference.adapters.mediapipe_adapter import MediaPipeAdapter
-from inference.adapters.hpss_demix_adapter import HpssDemixAdapter
 from inference.adapters.wave_unet_adapter import WaveUNetAdapter
 from inference.adapters.spectral_dereverb_adapter import SpectralDereverbAdapter
+from inference.adapters.audio_classifier_adapter import AudioClassifierAdapter
 from inference.cloud.replicate_client import ReplicateDemucsAdapter
 from inference.settings import InferenceSettings, inference_settings
 
@@ -67,6 +67,9 @@ class ModelRegistry:
                 model_id=model_id,
                 onset_threshold=cfg.basic_pitch_onset_threshold,
                 frame_threshold=cfg.basic_pitch_frame_threshold,
+                minimum_note_length_ms=cfg.basic_pitch_minimum_note_length_ms,
+                minimum_frequency=cfg.basic_pitch_minimum_frequency,
+                maximum_frequency=cfg.basic_pitch_maximum_frequency,
             )
         if adapter_type == "mediapipe":
             model = cfg.mediapipe_hand_model or spec.get("model")
@@ -88,8 +91,6 @@ class ModelRegistry:
                 device=cfg.bs_roformer_device or spec.get("device", "cpu"),
                 segment_size=cfg.bs_roformer_segment_size or spec.get("segment_size", 256),
             )
-        if adapter_type == "hpss_demix":
-            return HpssDemixAdapter(model_id=model_id)
         if adapter_type == "spectral_dereverb":
             return SpectralDereverbAdapter(
                 model_id=model_id,
@@ -97,6 +98,7 @@ class ModelRegistry:
                 decay_ms=cfg.dereverb_decay_ms,
                 floor=cfg.dereverb_floor,
                 transient_mix=cfg.dereverb_transient_mix,
+                gate_threshold=cfg.dereverb_gate_threshold,
             )
         if adapter_type == "wave_unet":
             weights = cfg.wave_unet_weights or spec.get("weights_path")
@@ -105,6 +107,13 @@ class ModelRegistry:
                 model_id=model_id,
                 weights_path=weights_path,
                 device=cfg.wave_unet_device or spec.get("device", "cpu"),
+            )
+        if adapter_type == "audio_classifier":
+            return AudioClassifierAdapter(
+                model_id=model_id,
+                model_name=cfg.audio_classifier_model
+                or spec.get("model_name", "MIT/ast-finetuned-audioset-10-10-0.4593"),
+                device=cfg.audio_classifier_device or spec.get("device", "cpu"),
             )
         return None
 
@@ -129,6 +138,9 @@ class ModelRegistry:
             "demucs_device": self.settings.demucs_device,
             "basic_pitch_onset_threshold": self.settings.basic_pitch_onset_threshold,
             "basic_pitch_frame_threshold": self.settings.basic_pitch_frame_threshold,
+            "basic_pitch_minimum_note_length_ms": self.settings.basic_pitch_minimum_note_length_ms,
+            "basic_pitch_minimum_frequency": self.settings.basic_pitch_minimum_frequency,
+            "basic_pitch_maximum_frequency": self.settings.basic_pitch_maximum_frequency,
             "mediapipe_min_detection_confidence": self.settings.mediapipe_min_detection_confidence,
             "mediapipe_min_tracking_confidence": self.settings.mediapipe_min_tracking_confidence,
             "mediapipe_hand_model": str(self.settings.mediapipe_hand_model)
@@ -143,5 +155,6 @@ class ModelRegistry:
             else None,
             "dereverb_enabled": self.settings.dereverb_enabled,
             "dereverb_strength": self.settings.dereverb_strength,
+            "dereverb_gate_threshold": self.settings.dereverb_gate_threshold,
             "fingering_optimizer": self.settings.fingering_optimizer,
         }
