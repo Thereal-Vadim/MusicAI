@@ -1,0 +1,53 @@
+[project]
+name = "musicai"
+version = "0.1.0"
+description = "Hybrid guitar transcription MVP"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "sqlalchemy>=2.0.36",
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "python-multipart>=0.0.17",
+    "httpx>=0.28.0",
+    "pyyaml>=6.0.2",
+    "librosa>=0.10.2",
+    "numpy>=1.26.0",
+    "soundfile>=0.12.1",
+    "music21>=9.1.0",
+    "opencv-python-headless>=4.10.0",
+    "yt-dlp>=2024.12.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "mediapipe>=0.10.14",
+    "basic-pitch>=0.4.0",
+    "demucs>=4.0.1",
+    "torch>=2.2.0",
+]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = [".", "packages", "apps/api", "apps/worker"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[build-system]
+requires = ["setuptools>=75.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["packages", "apps/api", "apps/worker"]
+include = ["inference*", "judge*", "tab_schema*", "musicai_api*", "musicai_worker*"]

@@ -1,0 +1,17 @@
+runtime: local
+
+models:
+  demucs/htdemucs_6s:
+    adapter: demucs
+    model_name: htdemucs_6s
+    device: mps
+  basic-pitch/v1:
+    adapter: basic_pitch
+    onset_threshold: 0.5
+    frame_threshold: 0.3
+  mediapipe/hands:
+    adapter: mediapipe
+    min_detection_confidence: 0.7
+    min_tracking_confidence: 0.5
+  librosa/beat:
+    adapter: librosa

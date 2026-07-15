@@ -1,0 +1,40 @@
+{
+  "version": "1",
+  "description": "Licensed or synthetic samples only. Do not commit media files.",
+  "samples": [
+    {
+      "id": "clean_guitar_mono",
+      "path": "benchmarks/media/clean_guitar_mono.wav",
+      "type": "upload",
+      "tags": ["clean", "mono", "guitar"],
+      "notes": "Single guitar, minimal mix"
+    },
+    {
+      "id": "full_mix_rock",
+      "path": "benchmarks/media/full_mix_rock.wav",
+      "type": "upload",
+      "tags": ["mix", "distortion"],
+      "notes": "Full band mix for separation benchmark"
+    },
+    {
+      "id": "youtube_hands_visible",
+      "path": "benchmarks/media/youtube_hands_visible.mp4",
+      "type": "youtube",
+      "tags": ["video", "hands_visible"],
+      "notes": "Visible fretboard for CV branch"
+    },
+    {
+      "id": "youtube_hands_occluded",
+      "path": "benchmarks/media/youtube_hands_occluded.mp4",
+      "type": "youtube",
+      "tags": ["video", "occluded"],
+      "notes": "Tests audio-only fallback"
+    }
+  ],
+  "metrics": {
+    "onset_f1_min": 0.5,
+    "pitch_accuracy_min": 0.6,
+    "judge_false_snap_max": 0.15,
+    "pipeline_p95_sec_max": 480
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "musicai",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --filter @musicai/web dev",
+    "dev:api": "uvicorn musicai_api.main:app --reload --app-dir apps/api --port 8000",
+    "dev:worker": "python -m musicai_worker.cli",
+    "build": "pnpm --filter @musicai/web build",
+    "lint": "pnpm --filter @musicai/web lint",
+    "test:web": "pnpm --filter @musicai/web test",
+    "test:py": "pytest"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

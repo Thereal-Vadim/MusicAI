@@ -1,0 +1,34 @@
+{
+  "run_id": "66462a38-35ca-4d72-958d-27d3109c4f20",
+  "results": [
+    {
+      "id": "clean_guitar_mono",
+      "notes": 22,
+      "judge_snapped": 0,
+      "vision_fallback": true,
+      "elapsed_sec": 3.23
+    },
+    {
+      "id": "full_mix_rock",
+      "notes": 22,
+      "judge_snapped": 0,
+      "vision_fallback": true,
+      "elapsed_sec": 0.05
+    },
+    {
+      "id": "youtube_hands_visible",
+      "notes": 0,
+      "judge_snapped": 0,
+      "vision_fallback": true,
+      "elapsed_sec": 0.0
+    },
+    {
+      "id": "youtube_hands_occluded",
+      "notes": 0,
+      "judge_snapped": 0,
+      "vision_fallback": true,
+      "elapsed_sec": 0.0
+    }
+  ],
+  "recommendation": "go"
+}
