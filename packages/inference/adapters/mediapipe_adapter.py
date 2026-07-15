@@ -5,20 +5,21 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from inference.adapters.base import BaseModelAdapter
 from inference.schemas.model_io import HandFrame, HandLandmark, VisionInput, VisionOutput
 
 
-class MediaPipeAdapter:
-    model_id = "mediapipe/hands"
-    runtime = "local"
-
+class MediaPipeAdapter(BaseModelAdapter):
     def __init__(
         self,
+        model_id: str = "mediapipe/hands",
         min_detection_confidence: float = 0.7,
         min_tracking_confidence: float = 0.5,
     ) -> None:
+        self.model_id = model_id
         self.min_detection_confidence = min_detection_confidence
         self.min_tracking_confidence = min_tracking_confidence
+        self.runtime = "local"
 
     def healthcheck(self) -> bool:
         try:

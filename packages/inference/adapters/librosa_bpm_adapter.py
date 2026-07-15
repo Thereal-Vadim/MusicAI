@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 
+from inference.adapters.base import BaseModelAdapter
 from inference.schemas.model_io import BpmInput, BpmOutput
 
 
-class LibrosaBpmAdapter:
-    model_id = "librosa/beat"
-    runtime = "local"
+class LibrosaBpmAdapter(BaseModelAdapter):
+    def __init__(self, model_id: str = "librosa/beat") -> None:
+        self.model_id = model_id
+        self.runtime = "local"
 
     def healthcheck(self) -> bool:
         try:

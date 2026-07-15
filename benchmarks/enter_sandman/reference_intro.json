@@ -1,0 +1,21 @@
+{
+  "title": "Metallica - Enter Sandman (intro riff excerpt)",
+  "source": "https://www.songsterr.com/a/wsa/metallica-enter-sandman-official-tab-s3787442",
+  "tuning": ["E2", "A2", "D3", "G3", "B3", "E4"],
+  "bpm": 123,
+  "description": "First iconic low-E riff pattern; timing approximate for comparison window matching.",
+  "notes": [
+    {"start_ms": 0, "duration_ms": 120, "string": 6, "fret": 0, "pitch_midi": 40},
+    {"start_ms": 240, "duration_ms": 120, "string": 6, "fret": 0, "pitch_midi": 40},
+    {"start_ms": 480, "duration_ms": 120, "string": 6, "fret": 5, "pitch_midi": 45},
+    {"start_ms": 720, "duration_ms": 120, "string": 6, "fret": 5, "pitch_midi": 45},
+    {"start_ms": 960, "duration_ms": 120, "string": 6, "fret": 0, "pitch_midi": 40},
+    {"start_ms": 1200, "duration_ms": 120, "string": 6, "fret": 0, "pitch_midi": 40},
+    {"start_ms": 1440, "duration_ms": 120, "string": 6, "fret": 5, "pitch_midi": 45},
+    {"start_ms": 1680, "duration_ms": 120, "string": 6, "fret": 5, "pitch_midi": 45},
+    {"start_ms": 1920, "duration_ms": 120, "string": 6, "fret": 7, "pitch_midi": 47},
+    {"start_ms": 2160, "duration_ms": 120, "string": 6, "fret": 7, "pitch_midi": 47},
+    {"start_ms": 2400, "duration_ms": 120, "string": 6, "fret": 0, "pitch_midi": 40},
+    {"start_ms": 2640, "duration_ms": 120, "string": 6, "fret": 0, "pitch_midi": 40}
+  ]
+}

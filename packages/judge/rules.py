@@ -58,6 +58,28 @@ def name_to_midi(name: str) -> int:
     return (octave + 1) * 12 + pc
 
 
+def detect_key_music21(pitch_classes: list[int]) -> DetectedKey | None:
+    """Use music21 Krumhansl-Schmuckler key analysis when available."""
+    if not pitch_classes:
+        return None
+    try:
+        from music21 import note as m21note, pitch, stream
+
+        score = stream.Stream()
+        for pc in pitch_classes:
+            n = m21note.Note(pitch.Pitch(midi=60 + pc))
+            score.append(n)
+        analyzed = score.analyze("key")
+        tonic_map = {"D-": "C#", "E-": "D#", "G-": "F#", "A-": "G#", "B-": "A#"}
+        root = tonic_map.get(analyzed.tonic.name, analyzed.tonic.name)
+        if root not in PITCH_CLASS_NAMES and len(root) == 1:
+            root = pitch_class_name(PITCH_CLASS_NAMES.index(root))
+        mode = analyzed.mode or "major"
+        return DetectedKey(root=root, mode=mode, confidence=0.85)
+    except Exception:
+        return None
+
+
 def detect_key(pitch_classes: list[int]) -> DetectedKey:
     if not pitch_classes:
         return DetectedKey(root="C", mode="major", confidence=0.0)
@@ -83,6 +105,14 @@ def detect_key(pitch_classes: list[int]) -> DetectedKey:
 
     confidence = min(best_score * 2.0, 1.0)
     return DetectedKey(root=pitch_class_name(best_root), mode=best_mode, confidence=confidence)
+
+
+def detect_key_with_fallback(pitch_classes: list[int], use_music21: bool = True) -> DetectedKey:
+    if use_music21:
+        m21_key = detect_key_music21(pitch_classes)
+        if m21_key is not None:
+            return m21_key
+    return detect_key(pitch_classes)
 
 
 def scale_pitch_classes(root: str, mode: str) -> set[int]:
@@ -157,7 +187,25 @@ def is_playable_fret(fret: int, string_num: int) -> bool:
     return 1 <= string_num <= 6 and 0 <= fret <= 24
 
 
-def chord_span_ok(frets: list[int]) -> bool:
+def chord_span_ok(frets: list[int], max_span: int = 5) -> bool:
     if len(frets) <= 1:
         return True
-    return max(frets) - min(frets) <= 5
+    return max(frets) - min(frets) <= max_span
+
+
+def validate_simultaneous_notes(note_count: int, max_notes: int = 4) -> bool:
+    return note_count <= max_notes
+
+
+def validate_temporal_order(notes: list, min_duration_ms: float = 50.0) -> list[str]:
+    """Return note ids that violate temporal sanity."""
+    violations: list[str] = []
+    ordered = sorted(notes, key=lambda n: n.start_ms)
+    prev_start = -1.0
+    for note in ordered:
+        if note.start_ms < prev_start:
+            violations.append(note.id)
+        if note.duration_ms < min_duration_ms:
+            violations.append(note.id)
+        prev_start = note.start_ms
+    return list(dict.fromkeys(violations))

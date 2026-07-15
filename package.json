@@ -9,7 +9,8 @@
     "build": "pnpm --filter @musicai/web build",
     "lint": "pnpm --filter @musicai/web lint",
     "test:web": "pnpm --filter @musicai/web test",
-    "test:py": "pytest"
+    "test:py": "pytest",
+    "test:sandman": "python benchmarks/enter_sandman/run_stress_test.py"
   },
   "engines": {
     "node": ">=20"

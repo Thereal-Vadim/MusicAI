@@ -2,72 +2,79 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
+from typing import Any
 
 import yaml
 
+from inference.adapters.base import BaseModelAdapter
 from inference.adapters.basic_pitch_adapter import BasicPitchAdapter
 from inference.adapters.demucs_adapter import DemucsAdapter
 from inference.adapters.librosa_bpm_adapter import LibrosaBpmAdapter
 from inference.adapters.mediapipe_adapter import MediaPipeAdapter
 from inference.cloud.replicate_client import ReplicateDemucsAdapter
+from inference.settings import InferenceSettings, inference_settings
 
 
 class ModelRegistry:
-    def __init__(self) -> None:
-        self._adapters: dict[str, object] = {}
+    def __init__(self, settings: InferenceSettings | None = None) -> None:
+        self.settings = settings or inference_settings
+        self._adapters: dict[str, BaseModelAdapter] = {}
 
     @classmethod
-    def from_config(cls, config_path: str | Path | None = None) -> "ModelRegistry":
-        registry = cls()
-        path = Path(config_path or Path(__file__).parent / "config" / "models.yaml")
+    def from_config(
+        cls,
+        config_path: str | Path | None = None,
+        settings: InferenceSettings | None = None,
+    ) -> "ModelRegistry":
+        registry = cls(settings=settings)
+        cfg = settings or inference_settings
+        path = Path(config_path or cfg.models_config_path or Path(__file__).parent / "config" / "models.yaml")
         config = yaml.safe_load(path.read_text()) if path.exists() else {"models": {}}
-        runtime = os.getenv("INFERENCE_RUNTIME", config.get("runtime", "local"))
+        runtime = cfg.inference_runtime or config.get("runtime", "local")
 
         for model_id, spec in config.get("models", {}).items():
-            adapter_type = spec.get("adapter")
-            if runtime == "cloud" and adapter_type == "demucs":
-                registry._adapters[model_id] = ReplicateDemucsAdapter(
-                    api_token=os.getenv("REPLICATE_API_TOKEN")
-                )
-                continue
-
-            if adapter_type == "demucs":
-                registry._adapters[model_id] = DemucsAdapter(
-                    model_name=os.getenv("DEMUCS_MODEL", spec.get("model_name", "htdemucs_6s")),
-                    device=os.getenv("DEMUCS_DEVICE", spec.get("device", "cpu")),
-                )
-            elif adapter_type == "basic_pitch":
-                registry._adapters[model_id] = BasicPitchAdapter(
-                    onset_threshold=float(
-                        os.getenv("BASIC_PITCH_ONSET_THRESHOLD", spec.get("onset_threshold", 0.5))
-                    ),
-                    frame_threshold=float(
-                        os.getenv("BASIC_PITCH_FRAME_THRESHOLD", spec.get("frame_threshold", 0.3))
-                    ),
-                )
-            elif adapter_type == "mediapipe":
-                registry._adapters[model_id] = MediaPipeAdapter(
-                    min_detection_confidence=float(
-                        os.getenv(
-                            "MEDIAPIPE_MIN_DETECTION_CONFIDENCE",
-                            spec.get("min_detection_confidence", 0.7),
-                        )
-                    ),
-                    min_tracking_confidence=float(
-                        os.getenv(
-                            "MEDIAPIPE_MIN_TRACKING_CONFIDENCE",
-                            spec.get("min_tracking_confidence", 0.5),
-                        )
-                    ),
-                )
-            elif adapter_type == "librosa":
-                registry._adapters[model_id] = LibrosaBpmAdapter()
+            adapter = registry._build_adapter(model_id, spec, runtime, cfg)
+            if adapter is not None:
+                registry._adapters[model_id] = adapter
 
         return registry
 
-    def get(self, model_id: str) -> object:
+    @staticmethod
+    def _build_adapter(
+        model_id: str,
+        spec: dict[str, Any],
+        runtime: str,
+        cfg: InferenceSettings,
+    ) -> BaseModelAdapter | None:
+        adapter_type = spec.get("adapter")
+
+        if runtime == "cloud" and adapter_type == "demucs":
+            return ReplicateDemucsAdapter(api_token=cfg.replicate_api_token)
+
+        if adapter_type == "demucs":
+            return DemucsAdapter(
+                model_id=model_id,
+                model_name=cfg.demucs_model or spec.get("model_name", "htdemucs_6s"),
+                device=cfg.demucs_device or spec.get("device", "cpu"),
+            )
+        if adapter_type == "basic_pitch":
+            return BasicPitchAdapter(
+                model_id=model_id,
+                onset_threshold=cfg.basic_pitch_onset_threshold,
+                frame_threshold=cfg.basic_pitch_frame_threshold,
+            )
+        if adapter_type == "mediapipe":
+            return MediaPipeAdapter(
+                model_id=model_id,
+                min_detection_confidence=cfg.mediapipe_min_detection_confidence,
+                min_tracking_confidence=cfg.mediapipe_min_tracking_confidence,
+            )
+        if adapter_type == "librosa":
+            return LibrosaBpmAdapter(model_id=model_id)
+        return None
+
+    def get(self, model_id: str) -> BaseModelAdapter:
         if model_id not in self._adapters:
             raise KeyError(f"Model not registered: {model_id}")
         return self._adapters[model_id]
@@ -76,7 +83,19 @@ class ModelRegistry:
         return list(self._adapters.keys())
 
     def healthcheck_all(self) -> dict[str, bool]:
+        return {model_id: adapter.healthcheck() for model_id, adapter in self._adapters.items()}
+
+    def describe_all(self) -> list[dict[str, object]]:
+        return [adapter.describe() for adapter in self._adapters.values()]
+
+    def runtime_config(self) -> dict[str, object]:
         return {
-            model_id: getattr(adapter, "healthcheck")()
-            for model_id, adapter in self._adapters.items()
+            "runtime": self.settings.inference_runtime,
+            "demucs_model": self.settings.demucs_model,
+            "demucs_device": self.settings.demucs_device,
+            "basic_pitch_onset_threshold": self.settings.basic_pitch_onset_threshold,
+            "basic_pitch_frame_threshold": self.settings.basic_pitch_frame_threshold,
+            "mediapipe_min_detection_confidence": self.settings.mediapipe_min_detection_confidence,
+            "mediapipe_min_tracking_confidence": self.settings.mediapipe_min_tracking_confidence,
+            "cloud_configured": bool(self.settings.replicate_api_token),
         }

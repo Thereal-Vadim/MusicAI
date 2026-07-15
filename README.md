@@ -56,6 +56,8 @@ Open http://localhost:3000/create
 - `GET /v1/drafts/{id}` — TabDocument draft
 - `PATCH /v1/drafts/{id}/notes/{note_id}` — manual correction
 - `GET /v1/inference/status` — model healthcheck
+- `GET /v1/inference/config` — runtime inference settings
+- `GET /v1/judge/config` — music theory judge rules/thresholds
 
 ## Tests
 

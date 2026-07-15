@@ -7,19 +7,29 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from inference.adapters.base import BaseModelAdapter
 from inference.schemas.model_io import SeparateInput, SeparateOutput
 
 
-class DemucsAdapter:
-    model_id = "demucs/htdemucs_6s"
-    runtime = "local"
-
-    def __init__(self, model_name: str = "htdemucs_6s", device: str = "cpu") -> None:
+class DemucsAdapter(BaseModelAdapter):
+    def __init__(
+        self,
+        model_id: str = "demucs/htdemucs_6s",
+        model_name: str = "htdemucs_6s",
+        device: str = "cpu",
+    ) -> None:
+        self.model_id = model_id
         self.model_name = model_name
         self.device = device
+        self.runtime = "local"
 
     def healthcheck(self) -> bool:
-        return shutil.which("python") is not None
+        try:
+            import demucs  # noqa: F401
+
+            return True
+        except ImportError:
+            return shutil.which("python") is not None
 
     async def predict(self, input_data: SeparateInput) -> SeparateOutput:
         return await asyncio.to_thread(self._separate, input_data)
@@ -43,6 +53,9 @@ class DemucsAdapter:
                 str(output_dir),
                 str(input_data.audio),
             ]
+            import logging
+
+            logging.getLogger("musicai.demucs").info("Running command: %s", " ".join(cmd))
             subprocess.run(cmd, check=True, capture_output=True, text=True)
             stem_path = (
                 output_dir
@@ -53,7 +66,12 @@ class DemucsAdapter:
             if not stem_path.exists():
                 raise FileNotFoundError(f"Stem not found: {stem_path}")
             return SeparateOutput(stem_path=stem_path, model_id=self.model_id)
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            import logging
+
+            logging.getLogger("musicai.demucs").warning(
+                "Demucs failed (%s), using audio fallback", exc
+            )
             fallback = output_dir / f"{input_data.stem}_fallback.wav"
             shutil.copy2(input_data.audio, fallback)
             return SeparateOutput(stem_path=fallback, model_id=f"{self.model_id}+fallback")

@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from musicai_api.db.session import init_db
-from musicai_api.routes import drafts, health, jobs
+from musicai_api.routes import drafts, health, inference, jobs, judge
 from musicai_api.settings import settings
 
 
@@ -27,5 +27,7 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(inference.router)
+app.include_router(judge.router)
 app.include_router(jobs.router)
 app.include_router(drafts.router)

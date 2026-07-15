@@ -33,5 +33,10 @@ async def test_pipeline_upload_end_to_end(sample_audio: Path, tmp_path: Path):
     assert document.tracks
     draft_path = work_dir / "draft.json"
     assert draft_path.exists()
+    judge_report_path = work_dir / "judge_report.json"
+    assert judge_report_path.exists()
+    judge_report = json.loads(judge_report_path.read_text())
+    assert "key" in judge_report
+    assert "stats" in judge_report
     loaded = json.loads(draft_path.read_text())
     assert loaded["meta"]["bpm"] > 0

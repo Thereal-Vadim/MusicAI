@@ -8,6 +8,7 @@ __pycache__/
 .ruff_cache/
 .env
 data/
+data/benchmarks/
 *.wav
 *.mp3
 *.mp4

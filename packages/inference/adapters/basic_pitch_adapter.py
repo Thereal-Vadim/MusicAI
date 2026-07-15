@@ -5,20 +5,21 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from inference.adapters.base import BaseModelAdapter
 from inference.schemas.model_io import RawNoteEvent, TranscribeInput, TranscribeOutput
 
 
-class BasicPitchAdapter:
-    model_id = "basic-pitch/v1"
-    runtime = "local"
-
+class BasicPitchAdapter(BaseModelAdapter):
     def __init__(
         self,
+        model_id: str = "basic-pitch/v1",
         onset_threshold: float = 0.5,
         frame_threshold: float = 0.3,
     ) -> None:
+        self.model_id = model_id
         self.onset_threshold = onset_threshold
         self.frame_threshold = frame_threshold
+        self.runtime = "local"
 
     def healthcheck(self) -> bool:
         try:
@@ -53,7 +54,12 @@ class BasicPitchAdapter:
                         confidence=float(conf),
                     )
                 )
-        except Exception:
+        except Exception as exc:
+            import logging
+
+            logging.getLogger("musicai.basic_pitch").warning(
+                "Basic Pitch failed (%s), using librosa fallback", exc
+            )
             notes = self._librosa_fallback(input_data.audio)
 
         return TranscribeOutput(notes=notes, model_id=self.model_id)
