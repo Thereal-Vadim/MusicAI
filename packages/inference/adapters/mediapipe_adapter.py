@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from inference.adapters.base import BaseModelAdapter
 from inference.schemas.model_io import HandFrame, HandLandmark, VisionInput, VisionOutput
+
+log = logging.getLogger("musicai.mediapipe")
 
 
 class MediaPipeAdapter(BaseModelAdapter):
@@ -23,9 +26,9 @@ class MediaPipeAdapter(BaseModelAdapter):
 
     def healthcheck(self) -> bool:
         try:
-            import mediapipe  # noqa: F401
+            import mediapipe as mp
 
-            return True
+            return hasattr(mp, "solutions") or hasattr(mp, "tasks")
         except ImportError:
             return False
 
@@ -40,6 +43,13 @@ class MediaPipeAdapter(BaseModelAdapter):
             import cv2
             import mediapipe as mp
         except ImportError:
+            return VisionOutput(frames=[], model_id=self.model_id, fallback_audio_only=True)
+
+        if not hasattr(mp, "solutions"):
+            log.warning(
+                "MediaPipe %s has no solutions API; using audio-only vision fallback",
+                getattr(mp, "__version__", "unknown"),
+            )
             return VisionOutput(frames=[], model_id=self.model_id, fallback_audio_only=True)
 
         cap = cv2.VideoCapture(str(input_data.video))
